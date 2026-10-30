@@ -6,6 +6,7 @@ import type {
   ModelFile,
   Part,
   PartStatus,
+  PrinterConfig,
   Project,
   SlicerId,
 } from "./types";
@@ -13,7 +14,7 @@ import type {
 const EMPTY: AppState = {
   version: 1,
   projects: [],
-  settings: { slicers: { bambu: null, prusa: null }, defaultSlicer: "bambu" },
+  settings: { slicers: { bambu: null, prusa: null }, defaultSlicer: "bambu", printers: [] },
 };
 
 export const uid = () => crypto.randomUUID();
@@ -155,7 +156,8 @@ export function useStore() {
     [mutate],
   );
 
-  const actions = useMemo(() => ({
+  const actions = useMemo(() => {
+    const actions = {
     createProject(init: Pick<Project, "name" | "description" | "sourceUrl">): string {
       const id = uid();
       const now = Date.now();
@@ -293,17 +295,36 @@ export function useStore() {
       return job;
     },
     finishJob(projectId: string, jobId: string, status: "done" | "failed") {
+      const job = latest.current?.projects.find((p) => p.id === projectId)?.jobs.find((j) => j.id === jobId);
+      if (!job) return;
+      actions.resolveJob(
+        projectId,
+        jobId,
+        Object.fromEntries(job.items.map((it) => [it.partId, status === "done" ? it.qty : 0])),
+      );
+    },
+    /**
+     * Finishes a queued job with the number of good copies per part; the rest
+     * count as failed. A job with no good copies is recorded as failed.
+     */
+    resolveJob(projectId: string, jobId: string, good: Record<string, number>) {
       withProject(projectId, (p) => {
         const job = p.jobs.find((j) => j.id === jobId);
         if (!job || job.status !== "queued") return;
-        job.status = status;
-        job.finishedAt = Date.now();
+        let total = 0;
         for (const it of job.items) {
+          it.good = Math.min(it.qty, Math.max(0, good[it.partId] ?? 0));
+          total += it.good;
           const part = p.parts.find((x) => x.id === it.partId);
           if (!part) continue;
-          if (status === "done") part.printed += it.qty;
-          else part.failed += it.qty;
+          part.printed += it.good;
+          part.failed += it.qty - it.good;
+          const secs = job.printer?.durationSec;
+          if (secs && it.good > 0 && job.items.length === 1) part.printSeconds = Math.round(secs / it.qty);
         }
+        job.status = total > 0 ? "done" : "failed";
+        job.finishedAt = Date.now();
+        if (job.printer) job.printer.awaitingReview = undefined;
       });
     },
     /** Puts a finished job back in the queue, undoing its effect on counts. */
@@ -313,9 +334,11 @@ export function useStore() {
         if (!job || job.status === "queued") return;
         for (const it of job.items) {
           const part = p.parts.find((x) => x.id === it.partId);
+          const good = it.good ?? (job.status === "done" ? it.qty : 0);
+          it.good = undefined;
           if (!part) continue;
-          if (job.status === "done") part.printed = Math.max(0, part.printed - it.qty);
-          else part.failed = Math.max(0, part.failed - it.qty);
+          part.printed = Math.max(0, part.printed - good);
+          part.failed = Math.max(0, part.failed - (it.qty - good));
         }
         job.status = "queued";
         job.finishedAt = undefined;
@@ -338,12 +361,27 @@ export function useStore() {
         s.settings.slicers[id] = command && command.length ? command : null;
       });
     },
+    savePrinter(printer: PrinterConfig) {
+      mutate((s) => {
+        const list = (s.settings.printers ??= []);
+        const i = list.findIndex((p) => p.id === printer.id);
+        if (i >= 0) list[i] = printer;
+        else list.push(printer);
+      });
+    },
+    removePrinter(id: string) {
+      mutate((s) => {
+        s.settings.printers = (s.settings.printers ?? []).filter((p) => p.id !== id);
+      });
+    },
     setDefaultSlicer(id: SlicerId) {
       mutate((s) => {
         s.settings.defaultSlicer = id;
       });
     },
-  }), [mutate, withProject]);
+    };
+    return actions;
+  }, [mutate, withProject]);
 
   return { state, error, setError, actions };
 }

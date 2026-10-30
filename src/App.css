@@ -200,6 +200,31 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .folder-row.is-hidden .folder-name { color: var(--muted); text-decoration: line-through; }
 .folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.sidebar-search { width: 100%; }
+.search-hit { padding: 6px 8px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.search-hit:hover { background: var(--panel-2); }
+.search-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-kind { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--accent); }
+.folder-filter { width: 100%; margin-bottom: 6px; }
+
+.printer-list { display: flex; flex-direction: column; gap: 8px; }
+.printer-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; }
+.printer-head { display: flex; align-items: center; gap: 6px; }
+.printer-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.printer-job { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.printer-stats { display: flex; gap: 10px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.pill { background: var(--bg); color: var(--muted); }
+.pill-active { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+.error-text { color: var(--danger); }
+.printer-row { display: flex; align-items: center; gap: 8px; }
+.printer-form { display: flex; flex-direction: column; gap: 10px; max-width: 480px; margin: 6px 0 12px; }
+.found-list { margin-top: 10px; }
+
+.review-items { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; }
+.review-item { display: flex; align-items: center; gap: 8px; }
+.review-item input { width: 64px; }
+
 /* Detail panel */
 .detail { width: 380px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; overflow-y: auto; }
 .detail-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }

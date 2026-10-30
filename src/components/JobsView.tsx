@@ -1,3 +1,4 @@
+import { formatDuration } from "../api";
 import type { Store } from "../store";
 import { SLICER_NAMES, type Job, type Project, type SlicerId } from "../types";
 
@@ -6,11 +7,12 @@ interface Props {
   project: Project;
   onSend: (ids: string[], slicer: SlicerId, recordJob: boolean) => void;
   onFocusPart: (id: string) => void;
+  onReview: (jobId: string) => void;
 }
 
 const fmt = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-export function JobsView({ store, project, onSend, onFocusPart }: Props) {
+export function JobsView({ store, project, onSend, onFocusPart, onReview }: Props) {
   const { actions } = store;
   const queued = project.jobs.filter((j) => j.status === "queued");
   const finished = project.jobs.filter((j) => j.status !== "queued");
@@ -37,10 +39,16 @@ export function JobsView({ store, project, onSend, onFocusPart }: Props) {
           <span className="muted">
             {copies} {copies === 1 ? "copy" : "copies"} · {job.slicer ? SLICER_NAMES[job.slicer] : "manual"} · {fmt(job.createdAt)}
             {job.finishedAt ? ` → ${fmt(job.finishedAt)}` : ""}
+            {job.printer && ` · ${job.printer.printerName}${job.printer.durationSec ? ` · ${formatDuration(job.printer.durationSec)}` : job.status === "queued" ? " · printing" : ""}`}
           </span>
           <div className="spacer" />
           {job.status === "queued" ? (
             <>
+              {job.printer?.awaitingReview && (
+                <button className="pill pill-active" onClick={() => onReview(job.id)} title="The printer has stopped — record how it went">
+                  Printer done — review
+                </button>
+              )}
               <button className="primary" onClick={() => actions.finishJob(project.id, job.id, "done")}>Printed ✓</button>
               <button onClick={() => actions.finishJob(project.id, job.id, "failed")}>Failed</button>
               {job.slicer && (
@@ -49,7 +57,13 @@ export function JobsView({ store, project, onSend, onFocusPart }: Props) {
             </>
           ) : (
             <>
-              <span className={`pill pill-${job.status}`}>{job.status === "done" ? "Printed" : "Failed"}</span>
+              <span className={`pill pill-${job.status}`}>
+                {job.status === "failed"
+                  ? "Failed"
+                  : job.items.some((it) => it.good !== undefined && it.good < it.qty)
+                    ? `Printed ${job.items.reduce((n, it) => n + (it.good ?? it.qty), 0)}/${copies}`
+                    : "Printed"}
+              </span>
               <button onClick={() => actions.reopenJob(project.id, job.id)} title="Undo and put back in the queue">Undo</button>
             </>
           )}

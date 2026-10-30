@@ -2,6 +2,7 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, joinCommand, splitCommand } from "../api";
 import type { Store } from "../store";
+import { PrinterSettings } from "./PrinterSettings";
 import { SLICER_NAMES, type SlicerId } from "../types";
 
 interface Props {
@@ -76,6 +77,7 @@ export function SettingsView({ store, notify }: Props) {
           </select>
         </label>
       </section>
+      <PrinterSettings store={store} notify={notify} />
       <section>
         <h3>DriveThruRPG</h3>
         <p className="muted">

@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ModelFile } from "./types";
 
+export interface FoundPrinter {
+  ip: string;
+  serial: string;
+  model: string;
+}
+
 export const api = {
   loadState: () => invoke<string>("load_state"),
   saveState: (json: string) => invoke<void>("save_state", { json }),
@@ -14,7 +20,19 @@ export const api = {
     invoke<{ bambu: string[] | null; prusa: string[] | null }>("detect_slicers"),
   openInSlicer: (command: string[], files: string[]) =>
     invoke<void>("open_in_slicer", { command, files }),
+  printerProbe: (ip: string) => invoke<FoundPrinter>("printer_probe", { ip }),
+  printerScan: () => invoke<FoundPrinter[]>("printer_scan"),
+  printerConnect: (p: { id: string; ip: string; serial: string; accessCode: string }) =>
+    invoke<void>("printer_connect", p),
+  printerDisconnect: (id: string) => invoke<void>("printer_disconnect", { id }),
 };
+
+export function formatDuration(sec: number): string {
+  const m = Math.round(sec / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${String(m % 60).padStart(2, "0")}m`;
+}
 
 export function basename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;

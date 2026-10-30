@@ -1,6 +1,6 @@
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ModelViewer } from "../viewer/ModelViewer";
-import { formatBytes } from "../api";
+import { formatBytes, formatDuration } from "../api";
 import type { Store } from "../store";
 import { SLICER_NAMES, type Part, type Project, type SlicerId } from "../types";
 
@@ -46,6 +46,7 @@ export function PartDetail({ store, project, part, queued, onSend, onClose }: Pr
           </label>
         </div>
         {queued > 0 && <p className="muted">{queued} in queued print jobs.</p>}
+        {part.printSeconds ? <p className="muted">Last tracked print: {formatDuration(part.printSeconds)} per copy.</p> : null}
         <div className="btn-row">
           <button onClick={() => update({ printed: part.required })} disabled={part.printed >= part.required}>Mark all printed</button>
           <button onClick={() => update({ printed: 0 })} disabled={part.printed === 0}>Reset</button>
@@ -87,6 +88,7 @@ export function PartDetail({ store, project, part, queued, onSend, onClose }: Pr
               <div key={j.id} className={`mini-job job-${j.status}`}>
                 <span>{j.name}</span>
                 <span>×{j.items.find((it) => it.partId === part.id)?.qty}</span>
+                {j.printer?.durationSec ? <span className="muted">{formatDuration(j.printer.durationSec)}</span> : null}
                 <span className="muted">{j.status}</span>
               </div>
             ))}

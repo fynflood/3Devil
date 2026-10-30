@@ -9,6 +9,9 @@ Cross-platform desktop app (Linux, Windows, macOS) for managing large multi-part
 - **STL / 3MF / OBJ rendering** — cached thumbnails for every part, plus an orbitable 3D viewer with dimensions.
 - **Slicer integration** — select parts and *Send to Bambu Studio* or *PrusaSlicer*; the files open in the slicer and are recorded as a queued **print job**. Mark the job *Printed* (counts go up) or *Failed*. Undo is supported.
 - **Progress** — per project, per group and per part, with filters for *To print / Queued / Done*.
+- **Folders** — expand/collapse all, and hide folders that aren't part of the build yet (hidden folders don't count toward progress).
+- **Search** — across every project from the sidebar; click a result to jump to the part.
+- **Bambu Lab printers** — *Settings → Printers → Find printers*, then enter the printer's LAN access code. The sidebar shows live state, progress, time left, layers and temperatures. A running print whose name matches a part is tracked as a print job automatically and marked printed (with the actual print time) when it finishes.
 - **DriveThruRPG** — download a title's ZIP from your library and use *New project → From ZIP*. Store the product link as the project's source URL. (DriveThruRPG has no public library API, so there is no direct sync.)
 
 Slicers are auto-detected (PATH, Flatpak, standard install locations) and can be overridden in **Settings**.
@@ -31,6 +34,8 @@ App data (projects, settings) is stored as `state.json` in the OS app-data direc
 ## Layout
 
 - `src-tauri/src/lib.rs` — backend commands: state persistence, folder scanning, ZIP extraction, slicer detection/launch.
+- `src-tauri/src/printer.rs` — Bambu Lab printer discovery and live status over the printer's local MQTT (TLS, port 8883).
+- `src/printers.ts` — printer connections, matching prints to parts, recording finished prints.
 - `src/store.ts` — app state and all project/part/job actions.
 - `src/viewer/` — three.js model loading, interactive viewer, thumbnail cache (IndexedDB).
 - `src/components/` — UI.

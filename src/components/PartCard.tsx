@@ -35,6 +35,7 @@ export const PartCard = memo(function PartCard({
   return (
     <div
       ref={ref}
+      data-part-id={part.id}
       className={`part-card status-${status}${selected ? " selected" : ""}${focused ? " focused" : ""}${part.missing ? " missing" : ""}`}
       onClick={(e) => (e.ctrlKey || e.metaKey || e.shiftKey ? onToggle(part.id, e.shiftKey) : onFocus(part.id))}
     >

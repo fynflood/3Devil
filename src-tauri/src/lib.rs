@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
+mod printer;
+
 const MODEL_EXTS: &[&str] = &["stl", "3mf", "obj"];
 
 fn state_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -29,6 +31,12 @@ fn save_state(app: AppHandle, json: String) -> Result<(), String> {
     let path = state_path(&app)?;
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, json.as_bytes()).map_err(|e| e.to_string())?;
+    // State includes printer access codes; keep it readable by this user only.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+    }
     if path.exists() {
         let _ = fs::copy(&path, path.with_extension("json.bak"));
     }
@@ -342,6 +350,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .manage(printer::Printers::default())
         .invoke_handler(tauri::generate_handler![
             load_state,
             save_state,
@@ -351,7 +361,11 @@ pub fn run() {
             extract_zip,
             extract_archives,
             detect_slicers,
-            open_in_slicer
+            open_in_slicer,
+            printer::printer_probe,
+            printer::printer_scan,
+            printer::printer_connect,
+            printer::printer_disconnect
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

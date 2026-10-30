@@ -22,12 +22,16 @@ export interface Part {
   color?: string;
   notes?: string;
   missing?: boolean;
+  /** Actual printer time per copy, from the last tracked print. */
+  printSeconds?: number;
   addedAt: number;
 }
 
 export interface JobItem {
   partId: string;
   qty: number;
+  /** Copies that came out good, once the job is finished. */
+  good?: number;
 }
 
 export type JobStatus = "queued" | "done" | "failed";
@@ -41,6 +45,55 @@ export interface Job {
   status: JobStatus;
   createdAt: number;
   finishedAt?: number;
+  /** Set when the job was seen running on a connected printer. */
+  printer?: JobPrinterLink;
+}
+
+export interface JobPrinterLink {
+  printerId: string;
+  printerName: string;
+  /** The printer's name for the running job (Bambu `subtask_name`). */
+  subtask: string;
+  startedAt: number;
+  durationSec?: number;
+  /** How the printer reported the end of the print. */
+  endState?: "FINISH" | "FAILED";
+  /** The printer has stopped and the user hasn't said yet whether it worked. */
+  awaitingReview?: boolean;
+}
+
+export interface PrinterConfig {
+  id: string;
+  name: string;
+  ip: string;
+  serial: string;
+  model: string;
+  accessCode: string;
+}
+
+/** Subset of a Bambu `print` status report that 3Devil uses. */
+export interface PrinterReport {
+  gcode_state?: string;
+  mc_percent?: number;
+  mc_remaining_time?: number;
+  layer_num?: number;
+  total_layer_num?: number;
+  subtask_name?: string;
+  gcode_file?: string;
+  gcode_start_time?: string;
+  nozzle_temper?: number;
+  nozzle_target_temper?: number;
+  bed_temper?: number;
+  bed_target_temper?: number;
+  chamber_temper?: number;
+  print_error?: number;
+}
+
+export interface PrinterStatus {
+  id: string;
+  connected: boolean;
+  error: string | null;
+  print: PrinterReport;
 }
 
 export interface Project {
@@ -63,6 +116,7 @@ export interface Project {
 export interface Settings {
   slicers: Record<SlicerId, string[] | null>;
   defaultSlicer: SlicerId;
+  printers?: PrinterConfig[];
 }
 
 export interface AppState {

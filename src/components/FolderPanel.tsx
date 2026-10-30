@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Part } from "../types";
 
 interface Props {
@@ -49,10 +49,14 @@ function buildTree(parts: Part[]): Node[] {
 
 /** Tree of the project's folders with checkboxes to include or hide each one. */
 export function FolderPanel({ parts, hidden, onSetHidden, onClose }: Props) {
+  const [filter, setFilter] = useState("");
   const tree = useMemo(() => buildTree(parts), [parts]);
+  const q = filter.trim().toLowerCase();
+  const matches = (n: Node): boolean => n.path.toLowerCase().includes(q) || n.children.some(matches);
   const allGroups = useMemo(() => [...new Set(parts.map((p) => p.group))], [parts]);
 
-  const row = (node: Node, depth: number) => {
+  const row = (node: Node, depth: number): React.ReactNode => {
+    if (q && !matches(node)) return null;
     const hiddenCount = node.groups.filter((g) => hidden.has(g)).length;
     const shown = hiddenCount === 0;
     const mixed = hiddenCount > 0 && hiddenCount < node.groups.length;
@@ -85,6 +89,14 @@ export function FolderPanel({ parts, hidden, onSetHidden, onClose }: Props) {
         <button className="icon-btn" onClick={onClose} title="Close">✕</button>
       </div>
       <p className="muted small">Unticked folders are hidden and left out of progress totals. Nothing on disk changes.</p>
+      <input
+        className="folder-filter"
+        type="search"
+        placeholder="Filter folders…"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        autoFocus
+      />
       <div className="folder-tree">{tree.map((n) => row(n, 0))}</div>
     </div>
   );

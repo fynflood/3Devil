@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api } from "../api";
@@ -14,12 +14,16 @@ interface Props {
   store: Store;
   project: Project;
   notify: (msg: string, kind?: "info" | "error") => void;
+  /** Ask the view to open a part (from global search or a printer card). */
+  focusRequest?: { partId: string; n: number } | null;
+  /** Re-open the "did it work?" prompt for a job the printer finished. */
+  onReview: (jobId: string) => void;
 }
 
 type Filter = "all" | PartStatus;
 const MODEL_FILTERS = [{ name: "3D models", extensions: ["stl", "3mf", "obj", "STL", "3MF", "OBJ"] }];
 
-export function ProjectView({ store, project, notify }: Props) {
+export function ProjectView({ store, project, notify, focusRequest, onReview }: Props) {
   const { actions, state } = store;
   const [tab, setTab] = useState<"parts" | "jobs">("parts");
   const [filter, setFilter] = useState<Filter>("all");
@@ -30,6 +34,18 @@ export function ProjectView({ store, project, notify }: Props) {
   const [busy, setBusy] = useState(false);
   const [bulkQty, setBulkQty] = useState("1");
   const lastToggled = useRef<string | null>(null);
+
+  useEffect(() => {
+    const part = focusRequest && project.parts.find((p) => p.id === focusRequest.partId);
+    if (!part) return;
+    setTab("parts");
+    setFocusId(part.id);
+    if (project.collapsedGroups?.includes(part.group)) actions.setGroupsCollapsed(project.id, [part.group], false);
+    requestAnimationFrame(() =>
+      document.querySelector(`[data-part-id="${part.id}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest?.n]);
 
   const queued = useMemo(() => queuedCounts(project), [project]);
   const progress = projectProgress(project);
@@ -205,7 +221,7 @@ export function ProjectView({ store, project, notify }: Props) {
       <div className="project-main">
         <div className="project-content">
           {tab === "jobs" ? (
-            <JobsView store={store} project={project} onSend={send} onFocusPart={(id) => { setFocusId(id); }} />
+            <JobsView store={store} project={project} onSend={send} onFocusPart={(id) => { setFocusId(id); }} onReview={onReview} />
           ) : project.parts.length === 0 ? (
             <div className="empty">
               <h3>No parts yet</h3>
