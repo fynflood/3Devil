@@ -2,10 +2,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api } from "../api";
-import { describeScan, partStatus, projectProgress, queuedCounts, type Store } from "../store";
+import { activeParts, describeScan, partStatus, projectProgress, queuedCounts, type Store } from "../store";
 import { sendToSlicer } from "../slicers";
 import { SLICER_NAMES, type Part, type PartStatus, type Project, type SlicerId } from "../types";
 import { PartCard } from "./PartCard";
+import { FolderPanel } from "./FolderPanel";
 import { PartDetail } from "./PartDetail";
 import { JobsView } from "./JobsView";
 
@@ -25,7 +26,7 @@ export function ProjectView({ store, project, notify }: Props) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focusId, setFocusId] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [showFolders, setShowFolders] = useState(false);
   const [busy, setBusy] = useState(false);
   const [bulkQty, setBulkQty] = useState("1");
   const lastToggled = useRef<string | null>(null);
@@ -34,13 +35,17 @@ export function ProjectView({ store, project, notify }: Props) {
   const progress = projectProgress(project);
   const pct = progress.required ? Math.round((progress.printed / progress.required) * 100) : 0;
 
+  const hidden = useMemo(() => new Set(project.hiddenGroups), [project.hiddenGroups]);
+  const collapsed = useMemo(() => new Set(project.collapsedGroups), [project.collapsedGroups]);
+  const active = useMemo(() => activeParts(project), [project]);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return project.parts.filter((p) => {
+    return active.filter((p) => {
       if (filter !== "all" && partStatus(p, queued.get(p.id) ?? 0) !== filter) return false;
       return !q || p.name.toLowerCase().includes(q) || p.group.toLowerCase().includes(q);
     });
-  }, [project.parts, filter, query, queued]);
+  }, [active, filter, query, queued]);
 
   const groups = useMemo(() => {
     const m = new Map<string, Part[]>();
@@ -55,10 +60,17 @@ export function ProjectView({ store, project, notify }: Props) {
   const ordered = useMemo(() => groups.flatMap(([, parts]) => parts), [groups]);
 
   const counts = useMemo(() => {
-    const c = { all: project.parts.length, todo: 0, queued: 0, done: 0 };
-    for (const p of project.parts) c[partStatus(p, queued.get(p.id) ?? 0)]++;
+    const c = { all: active.length, todo: 0, queued: 0, done: 0 };
+    for (const p of active) c[partStatus(p, queued.get(p.id) ?? 0)]++;
     return c;
-  }, [project.parts, queued]);
+  }, [active, queued]);
+
+  const hiddenFolders = useMemo(
+    () => new Set(project.parts.filter((p) => hidden.has(p.group)).map((p) => p.group)).size,
+    [project.parts, hidden],
+  );
+  const setCollapsed = (groupNames: string[], value: boolean) =>
+    actions.setGroupsCollapsed(project.id, groupNames, value);
 
   const toggle = useCallback((id: string, range: boolean) => {
     setSelected((prev) => {
@@ -214,6 +226,27 @@ export function ProjectView({ store, project, notify }: Props) {
                 <input className="search" placeholder="Search parts…" value={query} onChange={(e) => setQuery(e.target.value)} />
                 <button className="link" onClick={() => setSelected(new Set(visible.map((p) => p.id)))}>Select all</button>
               </div>
+              <div className="filters">
+                <button onClick={() => setCollapsed(groups.map(([g]) => g), false)} disabled={!groups.some(([g]) => collapsed.has(g))}>
+                  Expand all
+                </button>
+                <button onClick={() => setCollapsed(groups.map(([g]) => g), true)} disabled={groups.every(([g]) => collapsed.has(g))}>
+                  Collapse all
+                </button>
+                <div className="folder-anchor">
+                  <button className={showFolders ? "active" : ""} onClick={() => setShowFolders((v) => !v)}>
+                    Folders{hiddenFolders ? ` · ${hiddenFolders} hidden` : ""} ▾
+                  </button>
+                  {showFolders && (
+                    <FolderPanel
+                      parts={project.parts}
+                      hidden={hidden}
+                      onSetHidden={(g, h) => actions.setGroupsHidden(project.id, g, h)}
+                      onClose={() => setShowFolders(false)}
+                    />
+                  )}
+                </div>
+              </div>
 
               {groups.map(([group, parts]) => {
                 const done = parts.filter((p) => p.printed >= p.required).length;
@@ -221,15 +254,7 @@ export function ProjectView({ store, project, notify }: Props) {
                 return (
                   <section key={group} className="group">
                     <div className="group-head">
-                      <button
-                        className="group-toggle"
-                        onClick={() => setCollapsed((s) => {
-                          const n = new Set(s);
-                          if (n.has(group)) n.delete(group);
-                          else n.add(group);
-                          return n;
-                        })}
-                      >
+                      <button className="group-toggle" onClick={() => setCollapsed([group], !isCollapsed)}>
                         <span className="caret">{isCollapsed ? "▸" : "▾"}</span> {group}
                       </button>
                       <span className="muted">{done}/{parts.length} done</span>
@@ -239,6 +264,16 @@ export function ProjectView({ store, project, notify }: Props) {
                         onClick={() => setSelected((s) => new Set([...s, ...parts.filter((p) => p.printed < p.required).map((p) => p.id)]))}
                       >
                         Select unprinted
+                      </button>
+                      <button
+                        className="link muted-link"
+                        title="Hide this folder and leave it out of progress (manage under Folders)"
+                        onClick={() => {
+                          actions.setGroupsHidden(project.id, [group], true);
+                          setSelected((s) => new Set([...s].filter((id) => !parts.some((p) => p.id === id))));
+                        }}
+                      >
+                        Hide
                       </button>
                     </div>
                     {!isCollapsed && (
@@ -261,7 +296,18 @@ export function ProjectView({ store, project, notify }: Props) {
                   </section>
                 );
               })}
-              {groups.length === 0 && <div className="empty"><p>No parts match.</p></div>}
+              {groups.length === 0 && (
+                <div className="empty">
+                  {active.length === 0 ? (
+                    <p>
+                      Every folder is hidden.{" "}
+                      <button className="link" onClick={() => actions.setGroupsHidden(project.id, [...hidden], false)}>Show all</button>
+                    </p>
+                  ) : (
+                    <p>No parts match.</p>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

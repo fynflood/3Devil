@@ -52,6 +52,10 @@ export interface Project {
   folders: string[];
   parts: Part[];
   jobs: Job[];
+  /** Folder groups left out of the build: not shown and not counted in progress. */
+  hiddenGroups?: string[];
+  /** Folder groups whose parts are folded away in the parts view. */
+  collapsedGroups?: string[];
   createdAt: number;
   updatedAt: number;
 }

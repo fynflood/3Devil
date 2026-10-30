@@ -41,16 +41,24 @@ export function partStatus(part: Part, queued: number): PartStatus {
   return queued > 0 ? "queued" : "todo";
 }
 
+/** Parts in folders that are part of the build (not hidden). */
+export function activeParts(project: Project): Part[] {
+  if (!project.hiddenGroups?.length) return project.parts;
+  const hidden = new Set(project.hiddenGroups);
+  return project.parts.filter((p) => !hidden.has(p.group));
+}
+
 export function projectProgress(project: Project) {
   let required = 0;
   let printed = 0;
   let partsDone = 0;
-  for (const p of project.parts) {
+  const parts = activeParts(project);
+  for (const p of parts) {
     required += p.required;
     printed += Math.min(p.printed, p.required);
     if (p.printed >= p.required) partsDone++;
   }
-  return { required, printed, partsDone, parts: project.parts.length };
+  return { required, printed, partsDone, parts: parts.length };
 }
 
 function partsFromFiles(folder: string, files: ModelFile[], existing: Set<string>): Part[] {
@@ -224,6 +232,21 @@ export function useStore() {
         for (const part of p.parts) part.missing = missing.has(part.path) || undefined;
       });
       return { added: newParts.length, missing: missing.size, extracted, failed };
+    },
+
+    setGroupsHidden(projectId: string, groups: string[], hidden: boolean) {
+      withProject(projectId, (p) => {
+        const set = new Set(p.hiddenGroups);
+        groups.forEach((g) => (hidden ? set.add(g) : set.delete(g)));
+        p.hiddenGroups = [...set];
+      });
+    },
+    setGroupsCollapsed(projectId: string, groups: string[], collapsed: boolean) {
+      withProject(projectId, (p) => {
+        const set = new Set(p.collapsedGroups);
+        groups.forEach((g) => (collapsed ? set.add(g) : set.delete(g)));
+        p.collapsedGroups = [...set];
+      });
     },
 
     updatePart(projectId: string, partId: string, patch: Partial<Part>) {
