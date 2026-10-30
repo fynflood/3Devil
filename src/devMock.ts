@@ -1,11 +1,23 @@
 // Dev-only stand-in for the Tauri backend so the UI can be worked on in a
-// plain browser (`npm run dev`). Serves the generated files in /samples.
+// plain browser (`npm run dev`). State lives in localStorage; model files are
+// read through Vite's /@fs/ route (folders must be in server.fs.allow).
+// Folder scanning and native dialogs aren't available here.
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 
-/** Simulates a printer running `barrel_x8` for a few seconds, then finishing. */
+/** The first part in the saved state, so the simulated print matches something. */
+function firstPartName(): string {
+  try {
+    return JSON.parse(localStorage.getItem("3devil-state") ?? "null")?.projects?.[0]?.parts?.[0]?.name ?? "test print";
+  } catch {
+    return "test print";
+  }
+}
+
+/** Simulates a printer running a job for a few seconds, then finishing. */
 function simulatePrinter(id: string) {
   const start = Math.floor(Date.now() / 1000);
+  const subtask = firstPartName();
   let tick = 0;
   const timer = setInterval(() => {
     tick++;
@@ -20,7 +32,7 @@ function simulatePrinter(id: string) {
         mc_remaining_time: done ? 0 : 90 - tick * 10,
         layer_num: tick * 20,
         total_layer_num: 160,
-        subtask_name: "barrel_x8",
+        subtask_name: subtask,
         gcode_start_time: String(start - 3600),
         nozzle_temper: 219.6,
         nozzle_target_temper: 220,
@@ -33,9 +45,6 @@ function simulatePrinter(id: string) {
   }, 1000);
 }
 
-const SAMPLE_DIR = "/samples/Demo Castle";
-const files = Object.keys(import.meta.glob("/samples/**/*.{stl,3mf,obj}"));
-
 mockWindows("main");
 mockIPC(async (cmd, args) => {
   const a = (args ?? {}) as Record<string, unknown>;
@@ -45,31 +54,27 @@ mockIPC(async (cmd, args) => {
     case "save_state":
       localStorage.setItem("3devil-state", a.json as string);
       return null;
-    case "scan_models": {
-      const dir = (a.dir as string).replace(/\/$/, "");
-      return files
-        .filter((f) => f.startsWith(dir + "/"))
-        .map((path) => {
-          const rel = path.slice(dir.length + 1).split("/");
-          const file = rel.pop()!;
-          return { path, name: file.replace(/\.[^.]+$/, ""), group: rel.join("/"), size: 1000 };
-        });
+    case "scan_models":
+      console.info("[mock] folder scanning isn't available in the browser");
+      return [];
+    case "read_model_preview":
+    case "read_file_bytes": {
+      const path = a.path as string;
+      const res = await fetch(encodeURI(`/@fs${path}`));
+      if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+      return res.arrayBuffer();
     }
-    case "read_file_bytes":
-      return (await fetch(encodeURI(a.path as string))).arrayBuffer();
     case "missing_files":
       return [];
     case "extract_archives":
       return { extracted: [], failed: [] };
-    case "extract_zip":
-      return SAMPLE_DIR;
     case "detect_slicers":
       return { bambu: ["bambu-studio"], prusa: ["prusa-slicer"] };
     case "open_in_slicer":
       console.info("[mock] open_in_slicer", a.command, a.files);
       return null;
     case "printer_scan":
-      return [{ ip: "192.168.2.64", serial: "00M00A000000001", model: "X1 Carbon" }];
+      return [{ ip: "192.168.1.50", serial: "00M00A000000001", model: "X1 Carbon" }];
     case "printer_probe":
       return { ip: a.ip, serial: "00M00A000000001", model: "X1 Carbon" };
     case "printer_connect":
@@ -78,7 +83,7 @@ mockIPC(async (cmd, args) => {
     case "printer_disconnect":
       return null;
     case "plugin:dialog|open":
-      return SAMPLE_DIR;
+      return null;
     case "plugin:dialog|confirm":
     case "plugin:dialog|ask":
     case "plugin:dialog|message":

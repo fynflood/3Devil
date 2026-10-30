@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { addLights, disposeObject, frameObject, loadModel } from "./loadModel";
+import { VIEWER_RESOLUTION, addLights, disposeObject, frameObject, loadModel } from "./loadModel";
 
 interface Props {
   path: string;
+  /** File size in bytes, used to tell when a large STL was simplified. */
+  size?: number;
 }
 
 /** Interactive orbit viewer for a single model file. */
-export function ModelViewer({ path }: Props) {
+export function ModelViewer({ path, size }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | string>("loading");
   const [dims, setDims] = useState<THREE.Vector3 | null>(null);
+  const [simplified, setSimplified] = useState(false);
 
   useEffect(() => {
     const el = host.current;
@@ -19,6 +22,7 @@ export function ModelViewer({ path }: Props) {
     let disposed = false;
     setStatus("loading");
     setDims(null);
+    setSimplified(false);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -51,21 +55,22 @@ export function ModelViewer({ path }: Props) {
 
     let model: THREE.Object3D | null = null;
     let grid: THREE.GridHelper | null = null;
-    loadModel(path)
+    loadModel(path, VIEWER_RESOLUTION, size)
       .then((obj) => {
         if (disposed) return disposeObject(obj);
         model = obj;
         scene.add(obj);
-        const { target, size } = frameObject(camera, obj);
+        const { target, size: extent } = frameObject(camera, obj);
         controls.target.copy(target);
         // Grid in 10 mm squares sized to the part, like a build plate.
-        const span = Math.max(size.x, size.z) * 1.6;
+        const span = Math.max(extent.x, extent.z) * 1.6;
         const cells = Math.max(2, Math.ceil(span / 10));
         grid = new THREE.GridHelper(cells * 10, cells, 0x888888, 0x555555);
         (grid.material as THREE.Material).transparent = true;
         (grid.material as THREE.Material).opacity = 0.35;
         scene.add(grid);
-        setDims(size);
+        setDims(extent);
+        setSimplified(!!obj.userData.simplified);
         setStatus("ready");
         resize();
       })
@@ -80,9 +85,12 @@ export function ModelViewer({ path }: Props) {
       if (model) disposeObject(model);
       grid?.dispose();
       renderer.dispose();
+      // Free the GPU context now; WebKit caps live WebGL contexts and evicts
+      // the oldest (often the thumbnail renderer) when the cap is reached.
+      renderer.forceContextLoss();
       renderer.domElement.remove();
     };
-  }, [path]);
+  }, [path, size]);
 
   return (
     <div className="viewer">
@@ -92,6 +100,7 @@ export function ModelViewer({ path }: Props) {
       {dims && (
         <div className="viewer-dims">
           {dims.x.toFixed(1)} × {dims.z.toFixed(1)} × {dims.y.toFixed(1)} mm
+          {simplified && <span title="Large file shown at reduced detail; the slicer gets the full model"> · simplified preview</span>}
         </div>
       )}
     </div>

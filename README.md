@@ -6,7 +6,7 @@ Cross-platform desktop app (Linux, Windows, macOS) for managing large multi-part
 
 - **Projects** — one per build. Add folders of models, import ZIP downloads (nested ZIPs unpacked), or add loose files. Sub-folders become groups.
 - **Quantities** — each part has *needed / printed / failed* counts. Names like `wall_x4.stl` or `4x_barrel.stl` set the needed count automatically.
-- **STL / 3MF / OBJ rendering** — cached thumbnails for every part, plus an orbitable 3D viewer with dimensions.
+- **STL / 3MF / OBJ rendering** — cached thumbnails for every part, plus an orbitable 3D viewer with dimensions. Large STLs (hundreds of MB) are simplified in the backend for display; slicers always get the full file.
 - **Slicer integration** — select parts and *Send to Bambu Studio* or *PrusaSlicer*; the files open in the slicer and are recorded as a queued **print job**. Mark the job *Printed* (counts go up) or *Failed*. Undo is supported.
 - **Progress** — per project, per group and per part, with filters for *To print / Queued / Done*.
 - **Folders** — expand/collapse all, and hide folders that aren't part of the build yet (hidden folders don't count toward progress).
@@ -23,17 +23,18 @@ Requires Node 20+, Rust, and the [Tauri prerequisites](https://tauri.app/start/p
 ```bash
 npm install
 npm run tauri dev       # desktop app
-npm run dev             # UI only, in a browser, with a mocked backend + sample models
+npm run dev             # UI only, in a browser, with a mocked backend
 npm run tauri build     # installers for the current OS
 ```
 
-`python3 scripts/make_samples.py` regenerates the demo models in `samples/`. Rust tests: `cd src-tauri && cargo test`.
+Rust tests: `cd src-tauri && cargo test`.
 
 App data (projects, settings) is stored as `state.json` in the OS app-data directory (`~/.local/share/tech.ouija.threedevil` on Linux), with a `.bak` of the previous save.
 
 ## Layout
 
 - `src-tauri/src/lib.rs` — backend commands: state persistence, folder scanning, ZIP extraction, slicer detection/launch.
+- `src-tauri/src/preview.rs` — simplified copies of large STLs for thumbnails and the viewer.
 - `src-tauri/src/printer.rs` — Bambu Lab printer discovery and live status over the printer's local MQTT (TLS, port 8883).
 - `src/printers.ts` — printer connections, matching prints to parts, recording finished prints.
 - `src/store.ts` — app state and all project/part/job actions.

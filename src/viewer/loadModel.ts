@@ -10,18 +10,28 @@ export function partMaterial(color = PART_COLOR) {
   return new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.05, flatShading: false });
 }
 
+/** Grid resolution for simplified STLs: enough for a small thumbnail. */
+export const THUMB_RESOLUTION = 128;
+/** Grid resolution for the interactive viewer. */
+export const VIEWER_RESOLUTION = 320;
+
 /**
  * Loads a model file into a Z-up-corrected group whose bottom sits on y=0
  * and whose footprint is centred on the origin (like a slicer build plate).
+ * Large STLs are simplified by the backend to `resolution` grid cells along
+ * their longest side; `userData.simplified` is set when that happened.
  */
-export async function loadModel(path: string, color?: number): Promise<THREE.Group> {
-  const bytes = await api.readFileBytes(path);
+export async function loadModel(path: string, resolution: number, fileSize?: number): Promise<THREE.Group> {
   const ext = extOf(path);
-  const material = partMaterial(color);
+  const bytes = ext === "stl" ? await api.readModelPreview(path, resolution) : await api.readFileBytes(path);
+  let simplified = false;
+  const material = partMaterial();
   const group = new THREE.Group();
 
   if (ext === "stl") {
     const geom = new STLLoader().parse(bytes);
+    // The backend only simplifies binary STLs, whose size gives the original triangle count.
+    if (fileSize) simplified = geom.attributes.position.count / 3 < (fileSize - 84) / 50 - 0.5;
     geom.computeVertexNormals();
     group.add(new THREE.Mesh(geom, material));
   } else if (ext === "3mf") {
@@ -50,6 +60,7 @@ export async function loadModel(path: string, color?: number): Promise<THREE.Gro
   const box = new THREE.Box3().setFromObject(wrapper);
   const center = box.getCenter(new THREE.Vector3());
   group.position.set(-center.x, -box.min.y, -center.z);
+  wrapper.userData.simplified = simplified;
   return wrapper;
 }
 

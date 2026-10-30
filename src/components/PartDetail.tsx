@@ -27,7 +27,7 @@ export function PartDetail({ store, project, part, queued, onSend, onClose }: Pr
       {part.missing ? (
         <div className="viewer"><div className="viewer-overlay error">File not found:<br />{part.path}</div></div>
       ) : (
-        <ModelViewer path={part.path} />
+        <ModelViewer path={part.path} size={part.size} />
       )}
 
       <div className="detail-body">

@@ -120,6 +120,8 @@ export function useStore() {
   }, []);
 
   const flush = useCallback(() => {
+    // Only write when a save is pending, so closing never rewrites unchanged state.
+    if (saveTimer.current === undefined) return;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = undefined;
     if (latest.current) api.saveState(JSON.stringify(latest.current)).catch((e) => setError(String(e)));

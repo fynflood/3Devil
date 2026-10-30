@@ -12,6 +12,9 @@ export const api = {
   saveState: (json: string) => invoke<void>("save_state", { json }),
   scanModels: (dir: string) => invoke<ModelFile[]>("scan_models", { dir }),
   readFileBytes: (path: string) => invoke<ArrayBuffer>("read_file_bytes", { path }),
+  /** The model, with large STLs simplified to `resolution` grid cells on their longest side. */
+  readModelPreview: (path: string, resolution: number) =>
+    invoke<ArrayBuffer>("read_model_preview", { path, resolution }),
   missingFiles: (paths: string[]) => invoke<string[]>("missing_files", { paths }),
   extractZip: (zipPath: string) => invoke<string>("extract_zip", { zipPath }),
   extractArchives: (dir: string) =>

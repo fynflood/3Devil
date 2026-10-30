@@ -1,18 +1,17 @@
 import { useEffect, useState } from "react";
 import * as THREE from "three";
 import { get, set } from "idb-keyval";
-import { addLights, disposeObject, frameObject, loadModel } from "./loadModel";
+import { THUMB_RESOLUTION, addLights, disposeObject, frameObject, loadModel } from "./loadModel";
 
 const SIZE = 256;
-/** Skip auto-thumbnails for very large files; they can still be opened in the viewer. */
-const MAX_BYTES = 120 * 1024 * 1024;
 
 let renderer: THREE.WebGLRenderer | null = null;
 let scene: THREE.Scene | null = null;
 let camera: THREE.PerspectiveCamera | null = null;
 
 function setup() {
-  if (renderer) return;
+  if (renderer && !renderer.getContext().isContextLost()) return;
+  renderer?.dispose();
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setSize(SIZE, SIZE);
   scene = new THREE.Scene();
@@ -20,9 +19,9 @@ function setup() {
   camera = new THREE.PerspectiveCamera(30, 1, 0.1, 10000);
 }
 
-async function renderThumb(path: string): Promise<Blob> {
+async function renderThumb(path: string, fileSize: number): Promise<Blob> {
   setup();
-  const obj = await loadModel(path);
+  const obj = await loadModel(path, THUMB_RESOLUTION, fileSize);
   scene!.add(obj);
   frameObject(camera!, obj);
   renderer!.render(scene!, camera!);
@@ -48,13 +47,15 @@ export function thumbnailUrl(path: string, size: number): Promise<string | null>
     p = (async () => {
       const cached = await get<Blob>(key).catch(() => undefined);
       if (cached) return URL.createObjectURL(cached);
-      if (size > MAX_BYTES) return null;
-      const job = chain.then(() => renderThumb(path));
+      const job = chain.then(() => renderThumb(path, size));
       chain = job.catch(() => undefined);
       const blob = await job;
       await set(key, blob).catch(() => undefined);
       return URL.createObjectURL(blob);
-    })().catch(() => null);
+    })().catch((e) => {
+      console.warn(`Thumbnail failed for ${path}:`, e);
+      return null;
+    });
     urls.set(key, p);
   }
   return p;

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
+mod preview;
 mod printer;
 
 const MODEL_EXTS: &[&str] = &["stl", "3mf", "obj"];
@@ -112,6 +113,15 @@ async fn scan_models(dir: String) -> Result<Vec<ModelFile>, String> {
 #[tauri::command]
 fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
     fs::read(&path)
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| format!("{path}: {e}"))
+}
+
+/// A model file for display: large binary STLs come back simplified to a
+/// grid of `resolution` cells along their longest side.
+#[tauri::command]
+async fn read_model_preview(path: String, resolution: u32) -> Result<tauri::ipc::Response, String> {
+    preview::preview_bytes(&path, resolution)
         .map(tauri::ipc::Response::new)
         .map_err(|e| format!("{path}: {e}"))
 }
@@ -357,6 +367,7 @@ pub fn run() {
             save_state,
             scan_models,
             read_file_bytes,
+            read_model_preview,
             missing_files,
             extract_zip,
             extract_archives,
