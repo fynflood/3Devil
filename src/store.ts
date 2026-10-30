@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, basename } from "./api";
 import type {
   AppState,
+  DriveThruSettings,
   Job,
   ModelFile,
   Part,
@@ -160,7 +161,7 @@ export function useStore() {
 
   const actions = useMemo(() => {
     const actions = {
-    createProject(init: Pick<Project, "name" | "description" | "sourceUrl">): string {
+    createProject(init: Pick<Project, "name" | "description" | "sourceUrl" | "driveThru">): string {
       const id = uid();
       const now = Date.now();
       mutate((s) => {
@@ -168,7 +169,7 @@ export function useStore() {
       });
       return id;
     },
-    updateProject(id: string, patch: Partial<Pick<Project, "name" | "description" | "sourceUrl">>) {
+    updateProject(id: string, patch: Partial<Pick<Project, "name" | "description" | "sourceUrl" | "driveThru">>) {
       withProject(id, (p) => Object.assign(p, patch));
     },
     deleteProject(id: string) {
@@ -374,6 +375,11 @@ export function useStore() {
     removePrinter(id: string) {
       mutate((s) => {
         s.settings.printers = (s.settings.printers ?? []).filter((p) => p.id !== id);
+      });
+    },
+    setDriveThru(patch: Partial<DriveThruSettings>) {
+      mutate((s) => {
+        s.settings.driveThru = { apiKey: "", libraryPath: "", ...s.settings.driveThru, ...patch };
       });
     },
     setDefaultSlicer(id: SlicerId) {

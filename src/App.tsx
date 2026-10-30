@@ -7,6 +7,7 @@ import { SettingsView } from "./components/SettingsView";
 import { NewProjectDialog } from "./components/NewProjectDialog";
 import { PrinterCard } from "./components/PrinterCard";
 import { ReviewPrompt } from "./components/ReviewPrompt";
+import { DriveThruView } from "./components/DriveThruView";
 import type { Part, Project } from "./types";
 import "./App.css";
 
@@ -18,7 +19,7 @@ const MAX_RESULTS = 60;
 export default function App() {
   const store = useStore();
   const { state, error, actions } = store;
-  const [view, setView] = useState<string | "settings" | null>(null);
+  const [view, setView] = useState<string | "settings" | "drivethru" | null>(null);
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [search, setSearch] = useState("");
@@ -157,12 +158,20 @@ export default function App() {
             ))}
           </div>
         )}
+        <button className={`wide${view === "drivethru" ? " active" : ""}`} onClick={() => setView("drivethru")}>DriveThruRPG library</button>
         <button className={`wide${view === "settings" ? " active" : ""}`} onClick={() => setView("settings")}>Settings</button>
       </nav>
 
       <main className="main">
         {view === "settings" ? (
           <SettingsView store={store} notify={notify} />
+        ) : view === "drivethru" ? (
+          <DriveThruView
+            store={store}
+            notify={notify}
+            onOpenProject={(id) => { setView(id); setFocusRequest(null); }}
+            onOpenSettings={() => setView("settings")}
+          />
         ) : project ? (
           <ProjectView
             key={project.id}

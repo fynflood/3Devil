@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ModelFile } from "./types";
+import type { DriveThruProduct, ModelFile } from "./types";
 
 export interface FoundPrinter {
   ip: string;
@@ -28,6 +28,16 @@ export const api = {
   printerConnect: (p: { id: string; ip: string; serial: string; accessCode: string }) =>
     invoke<void>("printer_connect", p),
   printerDisconnect: (id: string) => invoke<void>("printer_disconnect", { id }),
+  drivethruLibrary: (key: string) => invoke<DriveThruProduct[]>("drivethru_library", { key }),
+  drivethruProductDir: (libraryPath: string, publisher: string, name: string) =>
+    invoke<string>("drivethru_product_dir", { libraryPath, publisher, name }),
+  drivethruDownload: (p: {
+    key: string;
+    orderProductId: number;
+    files: { index: number; filename: string }[];
+    destDir: string;
+    remoteModifiedMs: number | null;
+  }) => invoke<{ downloaded: string[]; skipped: string[] }>("drivethru_download", p),
 };
 
 export function formatDuration(sec: number): string {

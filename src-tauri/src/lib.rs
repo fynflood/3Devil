@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
+mod drivethru;
 mod preview;
 mod printer;
 
@@ -362,6 +363,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(printer::Printers::default())
+        .manage(drivethru::DriveThru::default())
         .invoke_handler(tauri::generate_handler![
             load_state,
             save_state,
@@ -376,7 +378,10 @@ pub fn run() {
             printer::printer_probe,
             printer::printer_scan,
             printer::printer_connect,
-            printer::printer_disconnect
+            printer::printer_disconnect,
+            drivethru::drivethru_library,
+            drivethru::drivethru_product_dir,
+            drivethru::drivethru_download
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

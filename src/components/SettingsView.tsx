@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api, joinCommand, splitCommand } from "../api";
 import type { Store } from "../store";
 import { PrinterSettings } from "./PrinterSettings";
+import { DriveThruSettingsSection } from "./DriveThruSettings";
 import { SLICER_NAMES, type SlicerId } from "../types";
 
 interface Props {
@@ -78,15 +79,7 @@ export function SettingsView({ store, notify }: Props) {
         </label>
       </section>
       <PrinterSettings store={store} notify={notify} />
-      <section>
-        <h3>DriveThruRPG</h3>
-        <p className="muted">
-          DriveThruRPG doesn't offer a public API for library downloads, so 3Devil works from the files you download.
-          Download a title's ZIP from your library, then use <strong>New project → From ZIP</strong> (or <strong>Import ZIP</strong> on an
-          existing project). If you keep the downloads in a folder, just add the folder — any ZIPs in it are unpacked automatically,
-          including on Rescan when you download more. Paste the product URL into the project's source field to keep the link.
-        </p>
-      </section>
+      <DriveThruSettingsSection store={store} />
     </div>
   );
 }

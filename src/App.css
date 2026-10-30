@@ -225,6 +225,15 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .review-item { display: flex; align-items: center; gap: 8px; }
 .review-item input { width: 64px; }
 
+.drivethru { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.drivethru-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.drivethru-head h2 { margin: 0; font-size: 20px; }
+.drivethru-head .search { margin-left: 0; }
+.drivethru-list { overflow-y: auto; padding: 10px 20px 40px; display: flex; flex-direction: column; gap: 6px; }
+.drivethru-row { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.drivethru-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.drivethru-row .drivethru-name { text-align: left; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Detail panel */
 .detail { width: 380px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; overflow-y: auto; }
 .detail-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }

@@ -109,14 +109,40 @@ export interface Project {
   hiddenGroups?: string[];
   /** Folder groups whose parts are folded away in the parts view. */
   collapsedGroups?: string[];
+  /** Set when the project was created from a DriveThruRPG library product. */
+  driveThru?: DriveThruLink;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface DriveThruLink {
+  productId: string;
+  orderProductId: number;
+  /** The product's file timestamp when it was last downloaded. */
+  fileLastModified?: string;
+}
+
+export interface DriveThruSettings {
+  /** Library App Key from the DriveThruRPG account settings. */
+  apiKey: string;
+  /** Where products are downloaded, as <folder>/<publisher>/<product>. */
+  libraryPath: string;
+}
+
+export interface DriveThruProduct {
+  productId: string;
+  orderProductId: number;
+  name: string;
+  publisher?: { name: string } | null;
+  fileLastModified?: string | null;
+  files: { index: number; filename: string }[];
 }
 
 export interface Settings {
   slicers: Record<SlicerId, string[] | null>;
   defaultSlicer: SlicerId;
   printers?: PrinterConfig[];
+  driveThru?: DriveThruSettings;
 }
 
 export interface AppState {
