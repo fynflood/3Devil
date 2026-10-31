@@ -12,7 +12,10 @@
   "app": {
     "windows": [
       {
-        "title": "3Devil", "label": "main", "minWidth": 900, "minHeight": 600,
+        "title": "3Devil",
+        "label": "main",
+        "minWidth": 900,
+        "minHeight": 600,
         "width": 1400,
         "height": 900
       }
@@ -30,6 +33,11 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "fyn",
+    "category": "Utility",
+    "shortDescription": "Track large multi-part 3D print builds",
+    "longDescription": "Manage 3D printing projects with many parts: track what's printed, preview STL/3MF/OBJ files, send parts to Bambu Studio or PrusaSlicer, follow Bambu Lab printers live, and import from your DriveThruRPG library.",
+    "homepage": "https://github.com/fynflood/3Devil"
   }
 }
