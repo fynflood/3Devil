@@ -2,17 +2,20 @@
 //! library app. Endpoints and flow follow the MIT-licensed `drpg` project:
 //! https://github.com/glujan/drpg
 
-use futures_util::StreamExt;
+use futures_util::{future::join_all, StreamExt};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::AsyncWriteExt;
 
 const API: &str = "https://api.drivethrurpg.com/api/vBeta/";
 const SITE_ID: &str = "10";
+/// Library pages requested at once; each page holds up to 100 products.
+const PARALLEL_PAGES: usize = 4;
 
 /// Access token for the current Library App Key, reused between calls.
 #[derive(Default)]
@@ -135,33 +138,90 @@ async fn get_json<T: for<'de> Deserialize<'de>>(
     unreachable!()
 }
 
-/// Lists every product in the user's (non-archived) library.
+/// The library as last fetched, saved so it can be shown straight away.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedLibrary {
+    /// Which Library App Key this is for (a hash, never the key itself).
+    key_hash: String,
+    fetched_at: i64,
+    products: Vec<Product>,
+}
+
+/// Not a stable hash across Rust versions; a mismatch only means one refetch.
+fn key_hash(key: &str) -> String {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+fn cache_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("drivethru-library.json"))
+}
+
+fn read_cache(path: &Path, key: &str) -> Option<CachedLibrary> {
+    let cached: CachedLibrary = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    (cached.key_hash == key_hash(key)).then_some(cached)
+}
+
+fn write_cache(path: &Path, key: &str, products: Vec<Product>) -> Result<CachedLibrary, String> {
+    let fetched_at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    let cached = CachedLibrary { key_hash: key_hash(key), fetched_at, products };
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec(&cached).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    Ok(cached)
+}
+
+/// The saved copy of the library for `key`, if there is one.
 #[tauri::command]
-pub async fn drivethru_library(state: State<'_, DriveThru>, key: String) -> Result<Vec<Product>, String> {
+pub fn drivethru_cached_library(app: AppHandle, key: String) -> Option<CachedLibrary> {
+    read_cache(&cache_path(&app).ok()?, &key)
+}
+
+async fn library_page(state: &DriveThru, http: &Client, key: &str, page: usize) -> Result<Vec<Product>, String> {
+    get_json(
+        state,
+        http,
+        key,
+        "order_products",
+        &[
+            ("getChecksum", "0".into()),
+            ("getFilters", "0".into()),
+            ("page", page.to_string()),
+            ("pageSize", "100".into()),
+            ("library", "1".into()),
+            ("archived", "0".into()),
+        ],
+    )
+    .await
+}
+
+/// Fetches every product in the user's (non-archived) library, a few pages
+/// at a time, and saves it for next time. Reports the running count through
+/// `drivethru-library-progress` events.
+#[tauri::command]
+pub async fn drivethru_library(app: AppHandle, state: State<'_, DriveThru>, key: String) -> Result<CachedLibrary, String> {
     let http = client()?;
+    // Sign in once up front so the parallel page requests share a token.
+    token(&state, &http, &key, false).await?;
     let mut all = Vec::new();
-    for page in 1.. {
-        let batch: Vec<Product> = get_json(
-            &state,
-            &http,
-            &key,
-            "order_products",
-            &[
-                ("getChecksum", "0".into()),
-                ("getFilters", "0".into()),
-                ("page", page.to_string()),
-                ("pageSize", "100".into()),
-                ("library", "1".into()),
-                ("archived", "0".into()),
-            ],
-        )
-        .await?;
-        if batch.is_empty() {
-            break;
+    let mut next = 1;
+    'pages: loop {
+        let pages = (next..next + PARALLEL_PAGES).map(|p| library_page(&state, &http, &key, p));
+        next += PARALLEL_PAGES;
+        for batch in join_all(pages).await {
+            let batch = batch?;
+            if batch.is_empty() {
+                break 'pages;
+            }
+            all.extend(batch);
         }
-        all.extend(batch);
+        let _ = app.emit("drivethru-library-progress", all.len());
     }
-    Ok(all)
+    write_cache(&cache_path(&app)?, &key, all)
 }
 
 /// Makes a name safe as a single path component on every OS.
@@ -305,5 +365,21 @@ mod tests {
         .unwrap();
         assert_eq!(p.product_id, "12345");
         assert_eq!(p.files[0].filename, "a.zip");
+    }
+
+    #[test]
+    fn cache_is_per_key() {
+        let dir = std::env::temp_dir().join(format!("threedevil-dtrpg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("drivethru-library.json");
+        let product: Product = serde_json::from_str(r#"{"productId": "7", "orderProductId": 1, "name": "Tower"}"#).unwrap();
+        write_cache(&path, "key-a", vec![product]).unwrap();
+
+        let cached = read_cache(&path, "key-a").unwrap();
+        assert_eq!(cached.products[0].name, "Tower");
+        assert!(cached.fetched_at > 0);
+        assert!(read_cache(&path, "key-b").is_none());
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("key-a"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

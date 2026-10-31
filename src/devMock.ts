@@ -51,6 +51,18 @@ const MOCK_LIBRARY = [
   { productId: "500003", orderProductId: 3, name: "Adventure Module (PDF only)", publisher: { name: "Paper Press" }, fileLastModified: "2026-08-02T12:00:00+00:00", files: [{ index: 0, filename: "module.pdf" }] },
 ];
 
+/** Pretends to fetch the library a page at a time, then saves it like the backend does. */
+async function mockLibrary(key: string) {
+  if (!key.startsWith("mock")) throw new Error("DriveThruRPG rejected the Library App Key.");
+  for (let page = 1; page <= 3; page++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    await emit("drivethru-library-progress", page * 100);
+  }
+  const library = { keyHash: key, fetchedAt: Date.now(), products: MOCK_LIBRARY };
+  localStorage.setItem("3devil-drivethru-library", JSON.stringify(library));
+  return library;
+}
+
 /** Pretends to download each file over about a second. */
 async function mockDownload(orderProductId: number, files: { filename: string }[]) {
   for (const [i, f] of files.entries()) {
@@ -100,8 +112,11 @@ mockIPC(async (cmd, args) => {
     case "printer_disconnect":
       return null;
     case "drivethru_library":
-      if (!(a.key as string).startsWith("mock")) throw new Error("DriveThruRPG rejected the Library App Key.");
-      return MOCK_LIBRARY;
+      return mockLibrary(a.key as string);
+    case "drivethru_cached_library": {
+      const saved = JSON.parse(localStorage.getItem("3devil-drivethru-library") ?? "null");
+      return saved?.keyHash === a.key ? saved : null;
+    }
     case "drivethru_product_dir":
       return `${a.libraryPath}/${(a.publisher as string) || "Others"}/${a.name}`;
     case "drivethru_download":

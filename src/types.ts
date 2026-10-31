@@ -138,6 +138,12 @@ export interface DriveThruProduct {
   files: { index: number; filename: string }[];
 }
 
+/** The library as last fetched; also saved on disk so it shows instantly. */
+export interface DriveThruLibrary {
+  fetchedAt: number;
+  products: DriveThruProduct[];
+}
+
 export interface Settings {
   slicers: Record<SlicerId, string[] | null>;
   defaultSlicer: SlicerId;

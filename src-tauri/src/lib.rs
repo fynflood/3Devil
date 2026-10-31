@@ -380,6 +380,7 @@ pub fn run() {
             printer::printer_connect,
             printer::printer_disconnect,
             drivethru::drivethru_library,
+            drivethru::drivethru_cached_library,
             drivethru::drivethru_product_dir,
             drivethru::drivethru_download
         ])

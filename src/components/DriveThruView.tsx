@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, extOf, formatBytes } from "../api";
 import { describeScan, type Store } from "../store";
-import type { DriveThruProduct, Project } from "../types";
+import type { DriveThruLibrary, DriveThruProduct, Project } from "../types";
 
 interface Props {
   store: Store;
@@ -25,14 +25,47 @@ const PRINT_EXTS = new Set(["zip", "stl", "3mf", "obj", "7z", "rar"]);
 const productUrl = (p: { productId: string }) => `https://www.drivethrurpg.com/en/product/${p.productId}`;
 const time = (iso?: string | null) => (iso ? Date.parse(iso) || 0 : 0);
 
-/** Library is cached for the session so switching views doesn't refetch it. */
-let cache: { key: string; products: DriveThruProduct[] } | null = null;
+/** Library as last seen, kept for the session so switching views doesn't reload it. */
+let cache: { key: string; library: DriveThruLibrary } | null = null;
+/** Keys whose library has been refreshed from DriveThruRPG this session. */
+const refreshed = new Set<string>();
+/** A fetch in progress, shared if the view is left and reopened meanwhile. */
+let pending: { key: string; promise: Promise<DriveThruLibrary> } | null = null;
+
+function fetchLibrary(key: string): Promise<DriveThruLibrary> {
+  if (pending?.key !== key) {
+    const promise = api
+      .drivethruLibrary(key)
+      .then((library) => {
+        cache = { key, library };
+        refreshed.add(key);
+        return library;
+      })
+      .finally(() => {
+        if (pending?.promise === promise) pending = null;
+      });
+    pending = { key, promise };
+  }
+  return pending.promise;
+}
+
+function ago(ms: number): string {
+  const min = Math.round((Date.now() - ms) / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} h ago`;
+  return new Date(ms).toLocaleDateString();
+}
 
 export function DriveThruView({ store, notify, onOpenProject, onOpenSettings }: Props) {
   const settings = store.state!.settings.driveThru;
   const key = settings?.apiKey ?? "";
-  const [products, setProducts] = useState<DriveThruProduct[] | null>(cache?.key === key ? cache.products : null);
+  const [library, setLibrary] = useState<DriveThruLibrary | null>(cache?.key === key ? cache.library : null);
+  const products = library?.products ?? null;
   const [loading, setLoading] = useState(false);
+  /** Products fetched so far by the refresh in progress. */
+  const [loaded, setLoaded] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [printOnly, setPrintOnly] = useState(true);
@@ -42,10 +75,9 @@ export function DriveThruView({ store, notify, onOpenProject, onOpenSettings }: 
   const load = async () => {
     setLoading(true);
     setError(null);
+    setLoaded(0);
     try {
-      const list = await api.drivethruLibrary(key);
-      cache = { key, products: list };
-      setProducts(list);
+      setLibrary(await fetchLibrary(key));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -53,15 +85,33 @@ export function DriveThruView({ store, notify, onOpenProject, onOpenSettings }: 
     }
   };
 
+  // Show the saved copy straight away, then refresh it once per session.
   useEffect(() => {
-    if (key && !products) load();
+    if (!key) return;
+    let cancelled = false;
+    (async () => {
+      if (cache?.key !== key) {
+        const saved = await api.drivethruCachedLibrary(key).catch(() => null);
+        if (cancelled) return;
+        if (saved) {
+          cache = { key, library: saved };
+          setLibrary(saved);
+        }
+      }
+      if (!refreshed.has(key)) load();
+    })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   useEffect(() => {
     const un = listen<Progress>("drivethru-progress", (e) => setProgress(e.payload));
+    const unLib = listen<number>("drivethru-library-progress", (e) => setLoaded(e.payload));
     return () => {
       un.then((f) => f());
+      unLib.then((f) => f());
     };
   }, []);
 
@@ -156,11 +206,20 @@ export function DriveThruView({ store, notify, onOpenProject, onOpenSettings }: 
         <input className="search" placeholder="Search library…" value={query} onChange={(e) => setQuery(e.target.value)} />
         <button onClick={load} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
       </header>
-      {error && <div className="empty"><p className="error-text">{error}</p><button onClick={onOpenSettings}>Check settings</button></div>}
-      {loading && !products && <div className="empty"><p>Loading your library…</p></div>}
+      {error && !products && <div className="empty"><p className="error-text">{error}</p><button onClick={onOpenSettings}>Check settings</button></div>}
+      {loading && !products && (
+        <div className="empty">
+          <p>Loading your library…{loaded > 0 && ` ${loaded} products so far.`}</p>
+          <p className="muted small">It's saved once loaded, so next time it opens straight away.</p>
+        </div>
+      )}
       {products && (
         <div className="drivethru-list">
-          <p className="muted small">{visible.length} of {products.length} products</p>
+          <p className="muted small">
+            {visible.length} of {products.length} products ·{" "}
+            {loading ? `refreshing…${loaded > 0 ? ` (${loaded} so far)` : ""}` : `updated ${ago(library!.fetchedAt)}`}
+          </p>
+          {error && <p className="error-text small">Couldn't refresh the library: {error}</p>}
           {visible.map((p) => {
             const project = linked.get(p.orderProductId);
             const hasUpdate = !!project && time(p.fileLastModified) > time(project.driveThru?.fileLastModified);
