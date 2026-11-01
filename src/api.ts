@@ -21,8 +21,9 @@ export const api = {
     invoke<{ extracted: string[]; failed: string[] }>("extract_archives", { dir }),
   detectSlicers: () =>
     invoke<{ bambu: string[] | null; prusa: string[] | null }>("detect_slicers"),
-  openInSlicer: (command: string[], files: string[]) =>
-    invoke<void>("open_in_slicer", { command, files }),
+  openInSlicer: (command: string[], files: string[], singleInstance: boolean) =>
+    invoke<void>("open_in_slicer", { command, files, singleInstance }),
+  openFolder: (path: string) => invoke<void>("open_folder", { path }),
   printerProbe: (ip: string) => invoke<FoundPrinter>("printer_probe", { ip }),
   printerScan: () => invoke<FoundPrinter[]>("printer_scan"),
   printerConnect: (p: { id: string; ip: string; serial: string; accessCode: string }) =>

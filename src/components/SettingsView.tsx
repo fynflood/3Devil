@@ -77,6 +77,19 @@ export function SettingsView({ store, notify }: Props) {
             ))}
           </select>
         </label>
+        <label className="inline">
+          <input
+            type="checkbox"
+            checked={settings.reuseSlicerWindow ?? true}
+            onChange={(e) => store.actions.setReuseSlicerWindow(e.target.checked)}
+          />
+          Add files to the PrusaSlicer window that's already open
+        </label>
+        <p className="muted small">
+          Each send goes into the same PrusaSlicer window instead of opening a new one. A window you opened yourself (not
+          from 3Devil) may not pick them up; close it and the next send opens one that will. Bambu Studio can't do this, so
+          to put several parts in one Bambu window, tick them all and send them together.
+        </p>
       </section>
       <PrinterSettings store={store} notify={notify} />
       <DriveThruSettingsSection store={store} />

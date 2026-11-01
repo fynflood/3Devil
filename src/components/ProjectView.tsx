@@ -4,9 +4,11 @@ import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api } from "../api";
 import { activeParts, describeScan, partStatus, projectProgress, queuedCounts, type Store } from "../store";
 import { sendToSlicer } from "../slicers";
+import { dragFiles, dragImage } from "../dragOut";
 import { SLICER_NAMES, type Part, type PartStatus, type Project, type SlicerId } from "../types";
 import { PartCard } from "./PartCard";
 import { FolderPanel } from "./FolderPanel";
+import { FolderButton, folderOf } from "./FolderButton";
 import { PartDetail } from "./PartDetail";
 import { JobsView } from "./JobsView";
 
@@ -113,6 +115,30 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
       p.printed = Math.max(0, p.printed + delta);
     });
   }, [actions, project.id]);
+
+  /** Drags a part (or all ticked parts, if it's one of them) out to another app. */
+  const dragOut = useCallback(async (id: string, thumb: HTMLImageElement | null) => {
+    const ids = selected.has(id) ? [...selected] : [id];
+    const parts = ids
+      .map((pid) => project.parts.find((p) => p.id === pid))
+      .filter((p): p is Part => !!p && !p.missing);
+    if (!parts.length) return;
+    try {
+      if (!(await dragFiles(parts.map((p) => p.path), dragImage(thumb, parts.length)))) return;
+      const r = actions.addDroppedParts(project.id, parts.map((p) => p.id));
+      if (!r) return;
+      const n = (k: number) => `${k} part${k === 1 ? "" : "s"}`;
+      notify(
+        r.added === r.total
+          ? `Queued ${n(r.added)} as “${r.name}”. Further drops in the next 30 minutes join it.`
+          : r.added
+            ? `Added ${n(r.added)} to “${r.name}” (${n(r.total)} now).`
+            : `Already in “${r.name}”.`,
+      );
+    } catch (e) {
+      notify(String(e), "error");
+    }
+  }, [selected, project, actions, notify]);
 
   const send = useCallback(async (ids: string[], slicer: SlicerId, recordJob: boolean) => {
     try {
@@ -259,6 +285,7 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
                       hidden={hidden}
                       onSetHidden={(g, h) => actions.setGroupsHidden(project.id, g, h)}
                       onClose={() => setShowFolders(false)}
+                      notify={notify}
                     />
                   )}
                 </div>
@@ -273,6 +300,7 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
                       <button className="group-toggle" onClick={() => setCollapsed([group], !isCollapsed)}>
                         <span className="caret">{isCollapsed ? "▸" : "▾"}</span> {group}
                       </button>
+                      <FolderButton path={folderOf(parts, group)} notify={notify} />
                       <span className="muted">{done}/{parts.length} done</span>
                       <div className="progress thin"><div style={{ width: `${(done / parts.length) * 100}%` }} /></div>
                       <button
@@ -305,6 +333,7 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
                             onToggle={toggle}
                             onFocus={setFocusId}
                             onAdjust={adjust}
+                            onDragOut={dragOut}
                           />
                         ))}
                       </div>

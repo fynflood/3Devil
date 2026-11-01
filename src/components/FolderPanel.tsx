@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import type { Part } from "../types";
+import { FolderButton, folderOf } from "./FolderButton";
 
 interface Props {
   parts: Part[];
   hidden: Set<string>;
   onSetHidden: (groups: string[], hidden: boolean) => void;
   onClose: () => void;
+  notify: (msg: string, kind?: "info" | "error") => void;
 }
 
 interface Node {
@@ -48,7 +50,7 @@ function buildTree(parts: Part[]): Node[] {
 }
 
 /** Tree of the project's folders with checkboxes to include or hide each one. */
-export function FolderPanel({ parts, hidden, onSetHidden, onClose }: Props) {
+export function FolderPanel({ parts, hidden, onSetHidden, onClose, notify }: Props) {
   const [filter, setFilter] = useState("");
   const tree = useMemo(() => buildTree(parts), [parts]);
   const q = filter.trim().toLowerCase();
@@ -73,6 +75,7 @@ export function FolderPanel({ parts, hidden, onSetHidden, onClose }: Props) {
           />
           <span className="folder-name">{node.name}</span>
           <span className="muted small">{node.parts}</span>
+          <FolderButton path={folderOf(parts, node.path)} notify={notify} />
         </label>
         {node.children.map((c) => row(c, depth + 1))}
       </div>

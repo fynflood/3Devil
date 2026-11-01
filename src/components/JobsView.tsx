@@ -37,7 +37,7 @@ export function JobsView({ store, project, onSend, onFocusPart, onReview }: Prop
             onChange={(e) => actions.updateJob(project.id, job.id, (j) => { j.name = e.target.value; })}
           />
           <span className="muted">
-            {copies} {copies === 1 ? "copy" : "copies"} · {job.slicer ? SLICER_NAMES[job.slicer] : "manual"} · {fmt(job.createdAt)}
+            {copies} {copies === 1 ? "copy" : "copies"} · {job.slicer ? SLICER_NAMES[job.slicer] : job.droppedAt ? "dragged to slicer" : "manual"} · {fmt(job.createdAt)}
             {job.finishedAt ? ` → ${fmt(job.finishedAt)}` : ""}
             {job.printer && ` · ${job.printer.printerName}${job.printer.durationSec ? ` · ${formatDuration(job.printer.durationSec)}` : job.status === "queued" ? " · printing" : ""}`}
           </span>

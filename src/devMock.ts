@@ -100,7 +100,15 @@ mockIPC(async (cmd, args) => {
     case "detect_slicers":
       return { bambu: ["bambu-studio"], prusa: ["prusa-slicer"] };
     case "open_in_slicer":
-      console.info("[mock] open_in_slicer", a.command, a.files);
+      console.info("[mock] open_in_slicer", a.command, a.files, a.singleInstance);
+      return null;
+    case "plugin:drag|start_drag":
+      // Pretend the files were dropped on another app a moment later.
+      console.info("[mock] start_drag", a.item);
+      setTimeout(() => (a.onEvent as { onmessage: (m: unknown) => void }).onmessage({ result: "Dropped", cursorPos: { x: 0, y: 0 } }), 300);
+      return null;
+    case "open_folder":
+      console.info("[mock] open_folder", a.path);
       return null;
     case "printer_scan":
       return [{ ip: "192.168.1.50", serial: "00M00A000000001", model: "X1 Carbon" }];

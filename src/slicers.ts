@@ -28,6 +28,9 @@ export async function sendToSlicer(
     .filter((p) => p && !p.missing)
     .map((p) => p!.path);
   if (!files.length) throw new Error("None of the selected files exist on disk.");
-  await api.openInSlicer(command, files);
+  // Only PrusaSlicer takes --single-instance on its command line; Bambu Studio
+  // rejects it and quits, and reads the same option from its own preferences.
+  const reuse = id === "prusa" && (store.state?.settings.reuseSlicerWindow ?? true);
+  await api.openInSlicer(command, files, reuse);
   return recordJob ? store.actions.createJob(project.id, partIds, id) : null;
 }

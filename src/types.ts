@@ -47,6 +47,8 @@ export interface Job {
   finishedAt?: number;
   /** Set when the job was seen running on a connected printer. */
   printer?: JobPrinterLink;
+  /** Last time parts were dragged into a slicer for this job. */
+  droppedAt?: number;
 }
 
 export interface JobPrinterLink {
@@ -147,6 +149,8 @@ export interface DriveThruLibrary {
 export interface Settings {
   slicers: Record<SlicerId, string[] | null>;
   defaultSlicer: SlicerId;
+  /** Send files to an already-open slicer window (default on). */
+  reuseSlicerWindow?: boolean;
   printers?: PrinterConfig[];
   driveThru?: DriveThruSettings;
 }

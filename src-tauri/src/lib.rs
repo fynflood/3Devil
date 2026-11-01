@@ -340,12 +340,15 @@ fn detect_slicers() -> DetectedSlicers {
 }
 
 /// Launches a slicer with the given model files loaded. `command` is the
-/// program followed by any fixed arguments (e.g. `flatpak run <id>`).
+/// program followed by any fixed arguments (e.g. `flatpak run <id>`). With
+/// `single_instance` (PrusaSlicer only), the files go to a window already
+/// opened this way instead of starting another one.
 #[tauri::command]
-fn open_in_slicer(command: Vec<String>, files: Vec<String>) -> Result<(), String> {
+fn open_in_slicer(command: Vec<String>, files: Vec<String>, single_instance: bool) -> Result<(), String> {
     let (program, args) = command.split_first().ok_or("No slicer configured")?;
     let mut child = Command::new(program)
         .args(args)
+        .args(single_instance.then_some("--single-instance"))
         .args(&files)
         .spawn()
         .map_err(|e| format!("Could not start {program}: {e}"))?;
@@ -356,12 +359,23 @@ fn open_in_slicer(command: Vec<String>, files: Vec<String>) -> Result<(), String
     Ok(())
 }
 
+/// Opens a folder in the system file browser. Only folders, so this can't be
+/// used to launch a file.
+#[tauri::command]
+fn open_folder(path: String) -> Result<(), String> {
+    if !Path::new(&path).is_dir() {
+        return Err(format!("{path} isn't there any more"));
+    }
+    tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_drag::init())
         .manage(printer::Printers::default())
         .manage(drivethru::DriveThru::default())
         .invoke_handler(tauri::generate_handler![
@@ -375,6 +389,7 @@ pub fn run() {
             extract_archives,
             detect_slicers,
             open_in_slicer,
+            open_folder,
             printer::printer_probe,
             printer::printer_scan,
             printer::printer_connect,

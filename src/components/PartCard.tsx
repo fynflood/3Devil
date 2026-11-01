@@ -11,6 +11,8 @@ interface Props {
   onToggle: (id: string, range: boolean) => void;
   onFocus: (id: string) => void;
   onAdjust: (id: string, delta: number) => void;
+  /** Dragging the card out of the window, e.g. onto a slicer. */
+  onDragOut: (id: string, thumb: HTMLImageElement | null) => void;
 }
 
 function useVisible<T extends Element>() {
@@ -27,9 +29,10 @@ function useVisible<T extends Element>() {
 }
 
 export const PartCard = memo(function PartCard({
-  part, status, queued, selected, focused, onToggle, onFocus, onAdjust,
+  part, status, queued, selected, focused, onToggle, onFocus, onAdjust, onDragOut,
 }: Props) {
   const [ref, visible] = useVisible<HTMLDivElement>();
+  const imgRef = useRef<HTMLImageElement>(null);
   const thumb = useThumbnail(part.path, part.size, visible && !part.missing);
 
   return (
@@ -38,6 +41,13 @@ export const PartCard = memo(function PartCard({
       data-part-id={part.id}
       className={`part-card status-${status}${selected ? " selected" : ""}${focused ? " focused" : ""}${part.missing ? " missing" : ""}`}
       onClick={(e) => (e.ctrlKey || e.metaKey || e.shiftKey ? onToggle(part.id, e.shiftKey) : onFocus(part.id))}
+      draggable={!part.missing}
+      onDragStart={(e) => {
+        // Hand the drag to the OS so the files can be dropped on another app.
+        e.preventDefault();
+        onDragOut(part.id, imgRef.current);
+      }}
+      title="Drag onto a slicer window to add it there"
     >
       <label className="part-check" onClick={(e) => e.stopPropagation()}>
         <input
@@ -51,7 +61,7 @@ export const PartCard = memo(function PartCard({
         {part.missing ? (
           <span className="thumb-note">File missing</span>
         ) : thumb ? (
-          <img src={thumb} alt="" draggable={false} />
+          <img ref={imgRef} src={thumb} alt="" draggable={false} />
         ) : thumb === null ? (
           <span className="thumb-note">No preview</span>
         ) : (

@@ -4,6 +4,7 @@ import type {
   AppState,
   DriveThruSettings,
   Job,
+  JobItem,
   ModelFile,
   Part,
   PartStatus,
@@ -19,6 +20,21 @@ const EMPTY: AppState = {
 };
 
 export const uid = () => crypto.randomUUID();
+
+/** Job lines for parts, each set to the copies still needed beyond what's already queued. */
+function jobItems(project: Project, partIds: string[]): JobItem[] {
+  const queued = queuedCounts(project);
+  return partIds
+    .map((id) => project.parts.find((x) => x.id === id))
+    .filter((x): x is Part => !!x)
+    .map((part) => ({
+      partId: part.id,
+      qty: Math.max(1, part.required - part.printed - (queued.get(part.id) ?? 0)),
+    }));
+}
+
+/** Parts dragged to a slicer within this long of the last drop join the same job. */
+const DROP_JOIN_MS = 30 * 60 * 1000;
 
 /** Guesses a copy count from names like "wall_x4", "4x wall", "pillar (x2)" or "glass -print 4". */
 export function quantityFromName(name: string): number {
@@ -277,14 +293,7 @@ export function useStore() {
     createJob(projectId: string, partIds: string[], slicer: SlicerId | null, name?: string): Job | null {
       const project = latest.current?.projects.find((p) => p.id === projectId);
       if (!project) return null;
-      const queued = queuedCounts(project);
-      const items = partIds
-        .map((id) => project.parts.find((x) => x.id === id))
-        .filter((x): x is Part => !!x)
-        .map((part) => ({
-          partId: part.id,
-          qty: Math.max(1, part.required - part.printed - (queued.get(part.id) ?? 0)),
-        }));
+      const items = jobItems(project, partIds);
       if (!items.length) return null;
       const job: Job = {
         id: uid(),
@@ -296,6 +305,30 @@ export function useStore() {
       };
       withProject(projectId, (p) => p.jobs.unshift(job));
       return job;
+    },
+    /**
+     * Records parts dragged onto a slicer. Drops in quick succession usually
+     * build up one plate, so they join the last queued drag job.
+     */
+    addDroppedParts(projectId: string, partIds: string[]): { name: string; added: number; total: number } | null {
+      const project = latest.current?.projects.find((p) => p.id === projectId);
+      if (!project) return null;
+      const now = Date.now();
+      const recent = project.jobs.find(
+        (j) => j.status === "queued" && j.droppedAt && now - j.droppedAt < DROP_JOIN_MS,
+      );
+      if (!recent) {
+        const job = actions.createJob(projectId, partIds, null);
+        if (!job) return null;
+        actions.updateJob(projectId, job.id, (j) => (j.droppedAt = now));
+        return { name: job.name, added: job.items.length, total: job.items.length };
+      }
+      const fresh = jobItems(project, partIds.filter((id) => !recent.items.some((it) => it.partId === id)));
+      actions.updateJob(projectId, recent.id, (j) => {
+        j.items.push(...fresh);
+        j.droppedAt = now;
+      });
+      return { name: recent.name, added: fresh.length, total: recent.items.length + fresh.length };
     },
     finishJob(projectId: string, jobId: string, status: "done" | "failed") {
       const job = latest.current?.projects.find((p) => p.id === projectId)?.jobs.find((j) => j.id === jobId);
@@ -385,6 +418,11 @@ export function useStore() {
     setDefaultSlicer(id: SlicerId) {
       mutate((s) => {
         s.settings.defaultSlicer = id;
+      });
+    },
+    setReuseSlicerWindow(value: boolean) {
+      mutate((s) => {
+        s.settings.reuseSlicerWindow = value;
       });
     },
     };

@@ -53,6 +53,8 @@ button.link:hover { text-decoration: underline; }
 button.wide { width: 100%; }
 button.active { border-color: var(--accent); }
 .icon-btn { padding: 0; width: 24px; height: 24px; line-height: 1; display: inline-grid; place-items: center; }
+.folder-btn { width: 22px; height: 22px; background: none; border-color: transparent; color: var(--muted); flex: none; }
+.folder-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--border); }
 
 input, select, textarea {
   background: var(--bg);
