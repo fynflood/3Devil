@@ -80,10 +80,11 @@ Uninstalling 3Devil leaves this folder in place. Your model files are never move
 - **Progress** — per project, per group and per part, with filters for *To print / Queued / Done*.
 - **Folders** — open any folder in your file browser from its folder icon, expand/collapse all, and hide folders that aren't part of the build yet (hidden folders don't count toward progress).
 - **Search** — across every project from the sidebar; click a result to jump to the part.
-- **Bambu Lab printers** — *Settings → Printers → Find printers*, then enter the printer's LAN access code. The sidebar shows live state, progress, time left, layers and temperatures. A running print whose name matches a part is tracked as a print job automatically; when it ends, 3Devil asks whether it worked (with good-copy counts per part) and records the result and print time.
+- **Bambu Lab printers** — *Settings → Printers → Find Bambu printers*, then enter the printer's LAN access code. The sidebar shows live state, progress, time left, layers and temperatures. A running print whose name matches a part is tracked as a print job automatically; when it ends, 3Devil asks whether it worked (with good-copy counts per part) and records the result and print time.
+- **Prusa printers** (MK4/MK4S, MK3.9, XL, MINI, Core One, or an MK3S with Prusa Link on a Raspberry Pi) — turn on PrusaLink on the printer (*Settings → Network → PrusaLink*), then *Settings → Printers → Add Prusa printer* with its address, user name and password. They show and track prints the same way, minus layer counts (PrusaLink doesn't report them). Files named by PrusaSlicer's default pattern (`Wall_A_0.4n_0.2mm_PLA_MK4S_1h2m.bgcode`) are matched to the part `Wall_A`.
 - **DriveThruRPG** — add a *Library App Key* (from your DriveThruRPG account settings) under *Settings*, then browse your purchases in *DriveThruRPG library* and turn any product into a project: its files are downloaded, unpacked and linked to the store page, and *Download update* appears when the publisher updates the files. The library is saved after the first load, so later it opens straight away and refreshes in the background. This uses the same unofficial API as DriveThruRPG's library app (endpoints courtesy of [drpg](https://github.com/glujan/drpg)), so it may break if they change it. Downloaded ZIPs work too: *New project → From ZIP*.
 
-Slicers are auto-detected (PATH, Flatpak, standard install locations) and can be overridden in **Settings**. **Settings → Appearance** switches between light and dark, or follows your system.
+Slicers are auto-detected (PATH, Flatpak, standard install locations) and can be overridden in **Settings**. **Settings → Appearance** switches between dark (the default) and light, or follows your system.
 
 ## Building from source
 
@@ -148,6 +149,7 @@ Update files are signed so installed copies only accept genuine updates. The wor
 - `src-tauri/src/preview.rs` — simplified copies of large STLs for thumbnails and the viewer.
 - `src-tauri/src/drivethru.rs` — DriveThruRPG library listing and downloads.
 - `src-tauri/src/printer.rs` — Bambu Lab printer discovery and live status over the printer's local MQTT (TLS, port 8883).
+- `src-tauri/src/prusa.rs` — Prusa printer status over PrusaLink (HTTP, Digest login), converted to the same report Bambu printers send.
 - `src/printers.ts` — printer connections, matching prints to parts, recording finished prints.
 - `src/store.ts` — app state and all project/part/job actions.
 - `src/viewer/` — three.js model loading, interactive viewer, thumbnail cache (IndexedDB).

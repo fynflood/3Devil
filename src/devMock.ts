@@ -45,6 +45,42 @@ function simulatePrinter(id: string) {
   }, 1000);
 }
 
+/**
+ * Simulates a Prusa printer over PrusaLink: a PrusaSlicer-named file, a short
+ * filament-change stop, then finished. The password "mock" logs in.
+ */
+function simulatePrusa(id: string, password: string) {
+  if (password !== "mock") {
+    emit("printer-status", { id, connected: false, error: "PrusaLink rejected the login. Check the username and password (or API key).", print: {} });
+    return;
+  }
+  const start = Math.floor(Date.now() / 1000);
+  const subtask = `${firstPartName().replace(/\.[a-z0-9]+$/i, "")}_0.4n_0.2mm_PLA_MK4S_1h2m.bgcode`;
+  let tick = 0;
+  const timer = setInterval(() => {
+    tick++;
+    const done = tick > 30;
+    emit("printer-status", {
+      id,
+      connected: true,
+      error: null,
+      print: {
+        gcode_state: done ? "FINISH" : tick >= 10 && tick < 14 ? "ATTENTION" : "RUNNING",
+        mc_percent: done ? 100 : Math.round(tick * 3.2),
+        mc_remaining_time: done ? undefined : 62 - tick * 2,
+        subtask_name: subtask,
+        gcode_start_time: String(start),
+        job_id: "42",
+        nozzle_temper: 214.8,
+        nozzle_target_temper: 215,
+        bed_temper: 60.1,
+        bed_target_temper: 60,
+      },
+    });
+    if (done) clearInterval(timer);
+  }, 1000);
+}
+
 const MOCK_LIBRARY = [
   { productId: "500001", orderProductId: 1, name: "Modular Dungeon Tiles", publisher: { name: "Example Forge" }, fileLastModified: "2026-10-01T12:00:00+00:00", files: [{ index: 0, filename: "Dungeon_Tiles.zip" }, { index: 1, filename: "Build_Guide.pdf" }] },
   { productId: "500002", orderProductId: 2, name: "Coastal Watchtower", publisher: { name: "Example Forge" }, fileLastModified: "2026-09-12T12:00:00+00:00", files: [{ index: 0, filename: "Watchtower_STL.zip" }] },
@@ -118,6 +154,12 @@ mockIPC(async (cmd, args) => {
       simulatePrinter(a.id as string);
       return null;
     case "printer_disconnect":
+      return null;
+    case "prusa_probe":
+      if (a.password !== "mock") throw "PrusaLink rejected the login. Check the username and password (or API key).";
+      return { ip: String(a.host).trim(), serial: "CZPX4224X017XK00042", model: "Prusa MK4S" };
+    case "prusa_connect":
+      simulatePrusa(a.id as string, a.password as string);
       return null;
     case "drivethru_library":
       return mockLibrary(a.key as string);

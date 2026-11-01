@@ -29,6 +29,10 @@ export const api = {
   printerConnect: (p: { id: string; ip: string; serial: string; accessCode: string }) =>
     invoke<void>("printer_connect", p),
   printerDisconnect: (id: string) => invoke<void>("printer_disconnect", { id }),
+  prusaProbe: (host: string, username: string, password: string) =>
+    invoke<FoundPrinter>("prusa_probe", { host, username, password }),
+  prusaConnect: (p: { id: string; host: string; username: string; password: string }) =>
+    invoke<void>("prusa_connect", p),
   drivethruLibrary: (key: string) => invoke<DriveThruLibrary>("drivethru_library", { key }),
   drivethruCachedLibrary: (key: string) => invoke<DriveThruLibrary | null>("drivethru_cached_library", { key }),
   drivethruProductDir: (libraryPath: string, publisher: string, name: string) =>

@@ -4,7 +4,7 @@ import { api } from "./api";
 import type { Store } from "./store";
 import type { Job, Part, PrinterConfig, PrinterReport, PrinterStatus, Project } from "./types";
 
-export const ACTIVE_STATES = new Set(["PREPARE", "SLICING", "RUNNING", "PAUSE"]);
+export const ACTIVE_STATES = new Set(["PREPARE", "SLICING", "RUNNING", "PAUSE", "ATTENTION"]);
 
 export const STATE_LABELS: Record<string, string> = {
   IDLE: "Idle",
@@ -14,10 +14,25 @@ export const STATE_LABELS: Record<string, string> = {
   PAUSE: "Paused",
   FINISH: "Finished",
   FAILED: "Failed",
+  // Prusa only.
+  ATTENTION: "Needs attention",
+  BUSY: "Busy",
+  ERROR: "Error",
 };
 
-const norm = (s: string) =>
-  s.toLowerCase().replace(/\.(gcode\.3mf|3mf|stl|obj|gcode)$/, "").replace(/[^a-z0-9]+/g, "");
+/**
+ * Comparable form of a print or part name. Drops the file extension and the
+ * settings PrusaSlicer adds by default, as in `Wall_A_0.4n_0.2mm_PLA_MK4S_1h2m.bgcode`.
+ */
+export const norm = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/\.(gcode\.3mf|3mf|stl|obj|bgcode|gcode)$/, "")
+    .replace(/_\d+(\.\d+)?n_\d+(\.\d+)?mm_.*$/, "")
+    .replace(/[^a-z0-9]+/g, "");
+
+/** Identifies one run of a print, so a reprint of the same file counts separately. */
+const runKey = (r: PrinterReport) => r.job_id ?? r.gcode_start_time;
 
 export interface PrintMatch {
   project: Project;
@@ -29,7 +44,9 @@ export interface PrintMatch {
 export function linkedJob(projects: Project[], printerId: string, report: PrinterReport) {
   for (const project of projects) {
     for (const job of project.jobs) {
-      if (job.printer?.printerId === printerId && job.printer.subtask === report.subtask_name) {
+      const link = job.printer;
+      if (link?.printerId === printerId && link.subtask === report.subtask_name) {
+        if (link.runId && report.job_id && link.runId !== report.job_id) continue;
         if (job.status === "queued" || !ACTIVE_STATES.has(report.gcode_state ?? "")) return { project, job };
       }
     }
@@ -70,7 +87,7 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
   const [statuses, setStatuses] = useState<Record<string, PrinterStatus>>({});
   const printers = store.state?.settings.printers ?? [];
   const connected = useRef(new Map<string, string>());
-  const prev = useRef<Record<string, { state?: string; start?: string }>>({});
+  const prev = useRef<Record<string, { state?: string; run?: string }>>({});
 
   useEffect(() => {
     const unlisten = listen<PrinterStatus>("printer-status", (e) =>
@@ -82,9 +99,10 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
   }, []);
 
   // Open, restart or close connections to match the configured printers.
-  const configKey = JSON.stringify(printers.map((p) => [p.id, p.ip, p.serial, p.accessCode]));
+  const settingsKey = (p: PrinterConfig) => JSON.stringify([p.kind, p.ip, p.serial, p.accessCode, p.username]);
+  const configKey = JSON.stringify(printers.map((p) => [p.id, settingsKey(p)]));
   useEffect(() => {
-    const want = new Map(printers.filter((p) => p.accessCode).map((p) => [p.id, JSON.stringify([p.ip, p.serial, p.accessCode])]));
+    const want = new Map(printers.filter((p) => p.accessCode).map((p) => [p.id, settingsKey(p)]));
     for (const id of [...connected.current.keys()]) {
       if (!want.has(id)) {
         api.printerDisconnect(id).catch(() => undefined);
@@ -96,7 +114,11 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
       const key = want.get(p.id);
       if (key && connected.current.get(p.id) !== key) {
         connected.current.set(p.id, key);
-        api.printerConnect({ id: p.id, ip: p.ip, serial: p.serial, accessCode: p.accessCode }).catch((e) => notify(String(e), "error"));
+        const connect =
+          p.kind === "prusa"
+            ? api.prusaConnect({ id: p.id, host: p.ip, username: p.username ?? "", password: p.accessCode })
+            : api.printerConnect({ id: p.id, ip: p.ip, serial: p.serial, accessCode: p.accessCode });
+        connect.catch((e) => notify(String(e), "error"));
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,8 +130,8 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
       const r = st.print;
       if (!r.gcode_state) continue;
       const before = prev.current[id];
-      if (before && before.state === r.gcode_state && before.start === r.gcode_start_time) continue;
-      prev.current[id] = { state: r.gcode_state, start: r.gcode_start_time };
+      if (before && before.state === r.gcode_state && before.run === runKey(r)) continue;
+      prev.current[id] = { state: r.gcode_state, run: runKey(r) };
       const printer = printers.find((p) => p.id === id);
       if (printer) onChange(store, notify, printer, projects, before?.state, r);
     }
@@ -135,7 +157,8 @@ function onChange(
     const m = matchPrint(projects, r);
     if (!m) return;
     const started = Number(r.gcode_start_time) > 0 ? Number(r.gcode_start_time) * 1000 : Date.now();
-    const job = m.job ?? actions.createJob(m.project.id, [m.part.id], "bambu", r.subtask_name);
+    const slicer = printer.kind === "prusa" ? "prusa" : "bambu";
+    const job = m.job ?? actions.createJob(m.project.id, [m.part.id], slicer, r.subtask_name);
     if (!job) return;
     if (!m.job) {
       // A print started outside 3Devil: assume one copy; editable in Print jobs.
@@ -144,7 +167,7 @@ function onChange(
       });
     }
     actions.updateJob(m.project.id, job.id, (j) => {
-      j.printer = { printerId: printer.id, printerName: printer.name, subtask: r.subtask_name ?? "", startedAt: started };
+      j.printer = { printerId: printer.id, printerName: printer.name, subtask: r.subtask_name ?? "", startedAt: started, runId: r.job_id };
     });
     notify(`${printer.name} is printing “${m.part.name}” (${m.project.name}) — tracking it as ${job.name}.`);
     return;
@@ -157,7 +180,7 @@ function onChange(
     const link = job.printer!;
     const sawEnd = !!prevState && ACTIVE_STATES.has(prevState);
     // On startup, only pick up a finished print if it's the same one we were tracking.
-    const sameRun = Number(r.gcode_start_time) * 1000 === link.startedAt;
+    const sameRun = link.runId ? link.runId === r.job_id : Number(r.gcode_start_time) * 1000 === link.startedAt;
     if (!sawEnd && !sameRun) return;
     actions.updateJob(project.id, job.id, (j) => {
       j.printer!.endState = state;

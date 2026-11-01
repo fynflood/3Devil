@@ -75,9 +75,9 @@ fn tls_config() -> rustls::ClientConfig {
 
 #[derive(Serialize, Clone)]
 pub struct FoundPrinter {
-    ip: String,
-    serial: String,
-    model: String,
+    pub(crate) ip: String,
+    pub(crate) serial: String,
+    pub(crate) model: String,
 }
 
 /// Best-effort model name from the serial-number prefix.
@@ -183,8 +183,20 @@ pub async fn printer_scan() -> Vec<FoundPrinter> {
     found
 }
 
+/// Running status connections (Bambu and Prusa), by printer id.
 #[derive(Default)]
 pub struct Printers(Mutex<HashMap<String, JoinHandle<()>>>);
+
+impl Printers {
+    /// Runs `task` as the status connection for `id`, replacing any old one.
+    pub(crate) fn start(&self, id: String, task: impl std::future::Future<Output = ()> + Send + 'static) {
+        let mut map = self.0.lock().unwrap();
+        if let Some(old) = map.remove(&id) {
+            old.abort();
+        }
+        map.insert(id, tauri::async_runtime::spawn(task));
+    }
+}
 
 #[derive(Serialize, Clone)]
 struct StatusEvent<'a> {
@@ -192,7 +204,13 @@ struct StatusEvent<'a> {
     connected: bool,
     error: Option<String>,
     /// The printer's merged `print` report (P1/A1 models only send changes).
+    /// Prusa printers send the same fields, converted from PrusaLink.
     print: &'a Value,
+}
+
+/// Sends a `printer-status` event for the frontend.
+pub(crate) fn emit_status(app: &AppHandle, id: &str, connected: bool, error: Option<String>, print: &Value) {
+    let _ = app.emit("printer-status", StatusEvent { id, connected, error, print });
 }
 
 /// Recursively merges `patch` into `base`; arrays and scalars are replaced.
@@ -213,9 +231,7 @@ async fn run(app: AppHandle, id: String, ip: String, serial: String, access_code
     let mut state = json!({});
     let mut last_log = String::new();
 
-    let emit = |connected: bool, error: Option<String>, print: &Value| {
-        let _ = app.emit("printer-status", StatusEvent { id: &id, connected, error, print });
-    };
+    let emit = |connected: bool, error: Option<String>, print: &Value| emit_status(&app, &id, connected, error, print);
 
     loop {
         let client_id = format!("3devil-{}", &uuid_suffix());
@@ -291,12 +307,7 @@ pub fn printer_connect(
     serial: String,
     access_code: String,
 ) {
-    let mut map = printers.0.lock().unwrap();
-    if let Some(old) = map.remove(&id) {
-        old.abort();
-    }
-    let handle = tauri::async_runtime::spawn(run(app, id.clone(), ip, serial, access_code));
-    map.insert(id, handle);
+    printers.start(id.clone(), run(app, id, ip, serial, access_code));
 }
 
 #[tauri::command]

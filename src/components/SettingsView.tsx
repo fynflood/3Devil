@@ -7,6 +7,7 @@ import { PrinterSettings } from "./PrinterSettings";
 import { DriveThruSettingsSection } from "./DriveThruSettings";
 import { SLICER_NAMES, type SlicerId, type Theme } from "../types";
 import type { Updater } from "../updater";
+import { DEFAULT_THEME } from "../theme";
 
 interface Props {
   store: Store;
@@ -119,8 +120,8 @@ export function SettingsView({ store, notify, updater }: Props & { updater: Upda
             <button
               key={id}
               role="radio"
-              aria-checked={(settings.theme ?? "system") === id}
-              className={`chip${(settings.theme ?? "system") === id ? " active" : ""}`}
+              aria-checked={(settings.theme ?? DEFAULT_THEME) === id}
+              className={`chip${(settings.theme ?? DEFAULT_THEME) === id ? " active" : ""}`}
               onClick={() => store.actions.setTheme(id)}
             >
               {label}

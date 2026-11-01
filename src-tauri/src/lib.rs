@@ -7,6 +7,7 @@ use tauri::{AppHandle, Manager};
 mod drivethru;
 mod preview;
 mod printer;
+mod prusa;
 
 const MODEL_EXTS: &[&str] = &["stl", "3mf", "obj"];
 
@@ -396,6 +397,8 @@ pub fn run() {
             printer::printer_scan,
             printer::printer_connect,
             printer::printer_disconnect,
+            prusa::prusa_probe,
+            prusa::prusa_connect,
             drivethru::drivethru_library,
             drivethru::drivethru_cached_library,
             drivethru::drivethru_product_dir,

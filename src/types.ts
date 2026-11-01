@@ -57,6 +57,8 @@ export interface JobPrinterLink {
   /** The printer's name for the running job (Bambu `subtask_name`). */
   subtask: string;
   startedAt: number;
+  /** The printer's own id for the print (PrusaLink job id), when it has one. */
+  runId?: string;
   durationSec?: number;
   /** How the printer reported the end of the print. */
   endState?: "FINISH" | "FAILED";
@@ -64,16 +66,28 @@ export interface JobPrinterLink {
   awaitingReview?: boolean;
 }
 
+export type PrinterKind = "bambu" | "prusa";
+
 export interface PrinterConfig {
   id: string;
+  /** Missing on printers saved before Prusa support: those are Bambu. */
+  kind?: PrinterKind;
   name: string;
+  /** IP address (Bambu), or IP address or host name (Prusa). */
   ip: string;
+  /** Empty for Prusa printers that don't report one. */
   serial: string;
   model: string;
+  /** Bambu LAN access code, or PrusaLink password / API key. */
   accessCode: string;
+  /** PrusaLink user name; "maker" on Prusa's own firmware. */
+  username?: string;
 }
 
-/** Subset of a Bambu `print` status report that 3Devil uses. */
+/**
+ * Subset of a Bambu `print` status report that 3Devil uses. Prusa printers
+ * report the same fields, converted from PrusaLink (no layer counts).
+ */
 export interface PrinterReport {
   gcode_state?: string;
   mc_percent?: number;
@@ -89,6 +103,8 @@ export interface PrinterReport {
   bed_target_temper?: number;
   chamber_temper?: number;
   print_error?: number;
+  /** PrusaLink's id for the print. */
+  job_id?: string;
 }
 
 export interface PrinterStatus {

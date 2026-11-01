@@ -8,7 +8,7 @@ import { NewProjectDialog } from "./components/NewProjectDialog";
 import { PrinterCard } from "./components/PrinterCard";
 import { ReviewPrompt } from "./components/ReviewPrompt";
 import { DriveThruView } from "./components/DriveThruView";
-import { applyTheme } from "./theme";
+import { applyTheme, DEFAULT_THEME } from "./theme";
 import { useUpdater } from "./updater";
 import { UpdateCard } from "./components/UpdateCard";
 import { useReorder } from "./useReorder";
@@ -48,7 +48,7 @@ export default function App() {
     if (error) notify(error, "error");
   }, [error, notify]);
 
-  const theme = state?.settings.theme ?? "system";
+  const theme = state?.settings.theme ?? DEFAULT_THEME;
   useEffect(() => {
     if (state) applyTheme(theme);
     // eslint-disable-next-line react-hooks/exhaustive-deps

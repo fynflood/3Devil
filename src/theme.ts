@@ -4,6 +4,9 @@ import type { Theme } from "./types";
 /** Remembered here too so the right colours show before the saved state loads. */
 const KEY = "3devil-theme";
 
+/** Used until the user picks a theme in Settings. */
+export const DEFAULT_THEME: Theme = "dark";
+
 export function applyTheme(theme: Theme) {
   const root = document.documentElement;
   if (theme === "system") delete root.dataset.theme;
@@ -22,9 +25,9 @@ export function applyTheme(theme: Theme) {
 /** Applies the last-used theme immediately at startup. */
 export function applyStoredTheme() {
   try {
-    const t = localStorage.getItem(KEY);
+    const t = localStorage.getItem(KEY) ?? DEFAULT_THEME;
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   } catch {
-    // Fall back to the system theme until settings load.
+    document.documentElement.dataset.theme = DEFAULT_THEME;
   }
 }
