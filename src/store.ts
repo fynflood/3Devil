@@ -189,6 +189,15 @@ export function useStore() {
     updateProject(id: string, patch: Partial<Pick<Project, "name" | "description" | "sourceUrl" | "driveThru">>) {
       withProject(id, (p) => Object.assign(p, patch));
     },
+    /** Moves a project to a new position in the sidebar list. */
+    moveProject(id: string, to: number) {
+      mutate((s) => {
+        const from = s.projects.findIndex((p) => p.id === id);
+        if (from < 0) return;
+        const [project] = s.projects.splice(from, 1);
+        s.projects.splice(Math.max(0, Math.min(to, s.projects.length)), 0, project);
+      });
+    },
     deleteProject(id: string) {
       mutate((s) => {
         s.projects = s.projects.filter((p) => p.id !== id);
@@ -448,6 +457,11 @@ export function useStore() {
     setTheme(theme: Theme) {
       mutate((s) => {
         s.settings.theme = theme;
+      });
+    },
+    setAutoUpdate(value: boolean) {
+      mutate((s) => {
+        s.settings.autoUpdate = value;
       });
     },
     };

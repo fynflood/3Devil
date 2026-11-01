@@ -9,6 +9,9 @@ import { PrinterCard } from "./components/PrinterCard";
 import { ReviewPrompt } from "./components/ReviewPrompt";
 import { DriveThruView } from "./components/DriveThruView";
 import { applyTheme } from "./theme";
+import { useUpdater } from "./updater";
+import { UpdateCard } from "./components/UpdateCard";
+import { useReorder } from "./useReorder";
 import type { Part, Project } from "./types";
 import "./App.css";
 
@@ -36,6 +39,10 @@ export default function App() {
   }, []);
 
   const statuses = usePrinters(store, notify);
+  const projectIds = useMemo(() => state?.projects.map((p) => p.id) ?? [], [state?.projects]);
+  const reorder = useReorder(projectIds, actions.moveProject);
+  // Not in development: an update would try to replace the dev build.
+  const updater = useUpdater(!import.meta.env.DEV && !!state && (state.settings.autoUpdate ?? true));
 
   useEffect(() => {
     if (error) notify(error, "error");
@@ -119,14 +126,29 @@ export default function App() {
               {!results.projects.length && !results.parts.length && <div className="muted small">No matches.</div>}
             </>
           ) : (
-            state.projects.map((p) => {
+            state.projects.map((p, i) => {
               const pr = projectProgress(p);
               const pct = pr.required ? Math.round((pr.printed / pr.required) * 100) : 0;
+              const { drag } = reorder;
+              // A line where the project would land; none where it already is.
+              const from = drag ? projectIds.indexOf(drag.id) : -1;
+              const moves = !!drag && drag.gap !== from && drag.gap !== from + 1;
+              const dropClass = !moves ? ""
+                : drag.gap === i ? " drop-before"
+                : drag.gap === projectIds.length && i === projectIds.length - 1 ? " drop-after"
+                : "";
               return (
                 <div
                   key={p.id}
-                  className={`project-item${view === p.id ? " active" : ""}`}
-                  onClick={() => { setView(p.id); setFocusRequest(null); }}
+                  data-reorder-id={p.id}
+                  className={`project-item${view === p.id ? " active" : ""}${drag?.id === p.id ? " dragging" : ""}${dropClass}`}
+                  title="Drag to reorder"
+                  onPointerDown={(e) => reorder.onPointerDown(e, p.id)}
+                  onClick={() => {
+                    if (reorder.wasDrag()) return;
+                    setView(p.id);
+                    setFocusRequest(null);
+                  }}
                 >
                   <div className="project-item-row">
                     <span className="project-item-name">{p.name}</span>
@@ -165,13 +187,14 @@ export default function App() {
             ))}
           </div>
         )}
+        <UpdateCard updater={updater} />
         <button className={`wide${view === "drivethru" ? " active" : ""}`} onClick={() => setView("drivethru")}>DriveThruRPG library</button>
         <button className={`wide${view === "settings" ? " active" : ""}`} onClick={() => setView("settings")}>Settings</button>
       </nav>
 
       <main className="main">
         {view === "settings" ? (
-          <SettingsView store={store} notify={notify} />
+          <SettingsView store={store} notify={notify} updater={updater} />
         ) : view === "drivethru" ? (
           <DriveThruView
             store={store}

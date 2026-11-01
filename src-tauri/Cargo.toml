@@ -33,6 +33,8 @@ tauri-plugin-notification = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip", "http2"] }
 futures-util = "0.3"
 tauri-plugin-drag = "2.1.1"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 
 # Mesh simplification is a tight loop; keep it fast in `tauri dev` too.

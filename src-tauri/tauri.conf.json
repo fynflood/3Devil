@@ -38,6 +38,18 @@
     "category": "Utility",
     "shortDescription": "Track large multi-part 3D print builds",
     "longDescription": "Manage 3D printing projects with many parts: track what's printed, preview STL/3MF/OBJ files, send parts to Bambu Studio or PrusaSlicer, follow Bambu Lab printers live, and import from your DriveThruRPG library.",
-    "homepage": "https://github.com/fynflood/3Devil"
+    "homepage": "https://github.com/fynflood/3Devil",
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA2NEE3MkY1MUFCMzI4REQKUldUZEtMTWE5WEpLQmhoblBtOXJQY1hodGY5ZlhCbFJBTUJ4S3doS3JoWHVuT1NzNEhmVVpJaHcK",
+      "endpoints": [
+        "https://github.com/fynflood/3Devil/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

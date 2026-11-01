@@ -55,6 +55,10 @@ Pick the package for your distribution:
 
   AppImages need FUSE 2 (`sudo pacman -S fuse2` on Arch, `sudo apt install libfuse2` on Ubuntu 22.04+).
 
+### Updates
+
+From version 0.1.2 on, 3Devil checks GitHub for new releases, downloads them in the background and shows **Restart to update** in the sidebar when one is ready. Nothing installs until you click it. On Linux, `.deb` and `.rpm` installs ask for your password to install the update. Turn automatic checks off, or check by hand, under **Settings → Updates**. Versions before 0.1.2 have to be updated by downloading the new installer once.
+
 ### Where your data lives
 
 Projects and settings are saved in `state.json` (plus a `.bak` of the previous save):
@@ -69,7 +73,7 @@ Uninstalling 3Devil leaves this folder in place. Your model files are never move
 
 ## Features
 
-- **Projects** — one per build. Add folders of models, import ZIP downloads (nested ZIPs unpacked), or add loose files. Sub-folders become groups.
+- **Projects** — one per build; drag them in the sidebar to reorder. Add folders of models, import ZIP downloads (nested ZIPs unpacked), or add loose files. Sub-folders become groups.
 - **Quantities** — each part has *needed / printed / failed* counts. Names like `wall_x4.stl` or `4x_barrel.stl` set the needed count automatically.
 - **STL / 3MF / OBJ rendering** — cached thumbnails for every part, plus an orbitable 3D viewer with dimensions. Large STLs (hundreds of MB) are simplified in the backend for display; slicers always get the full file.
 - **Slicer integration** — select parts and *Send to Bambu Studio* or *PrusaSlicer*; the files open in the slicer and are recorded as a queued **print job**. Tick several parts to send them to one slicer window together, or drag part cards (one, or all ticked ones) onto a slicer window that's already open to add them to its plate; drops within 30 minutes are recorded as one job. PrusaSlicer also takes later sends into the window that's already open (turn this off in *Settings*); Bambu Studio opens a new window for each send. Mark the job *Printed* (counts go up) or *Failed*, or take parts out of it (✕ on a part's yellow *queued* badge or in the job, or *Remove from queue* for a selection). Undo is supported.
@@ -135,6 +139,8 @@ git push origin v0.1.0
 ```
 
 The tag should match `version` in `src-tauri/tauri.conf.json`.
+
+Update files are signed so installed copies only accept genuine updates. The workflow needs the signing key in the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`; the matching public key is in `tauri.conf.json` under `plugins.updater`. Each release's `latest.json` tells installed copies what's new.
 
 ## Layout
 

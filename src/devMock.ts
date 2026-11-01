@@ -129,6 +129,28 @@ mockIPC(async (cmd, args) => {
       return `${a.libraryPath}/${(a.publisher as string) || "Others"}/${a.name}`;
     case "drivethru_download":
       return mockDownload(a.orderProductId as number, a.files as { filename: string }[]);
+    case "plugin:app|version":
+      return "0.1.1";
+    case "plugin:updater|check":
+      return { rid: 1, currentVersion: "0.1.1", version: "0.1.2", body: "Mock release", rawJson: {} };
+    case "plugin:updater|download": {
+      // Pretend to download 6 MB over about three seconds.
+      const ch = a.onEvent as { onmessage: (m: unknown) => void };
+      ch.onmessage({ event: "Started", data: { contentLength: 6e6 } });
+      for (let i = 0; i < 6; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        ch.onmessage({ event: "Progress", data: { chunkLength: 1e6 } });
+      }
+      ch.onmessage({ event: "Finished" });
+      return 2;
+    }
+    case "plugin:updater|install":
+      return null;
+    case "plugin:process|restart":
+      console.info("[mock] restart");
+      return null;
+    case "plugin:resources|close":
+      return null;
     case "plugin:path|resolve_directory":
       return "/home/user/Documents";
     case "plugin:path|join":

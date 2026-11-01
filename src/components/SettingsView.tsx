@@ -1,14 +1,56 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, joinCommand, splitCommand } from "../api";
 import type { Store } from "../store";
 import { PrinterSettings } from "./PrinterSettings";
 import { DriveThruSettingsSection } from "./DriveThruSettings";
 import { SLICER_NAMES, type SlicerId, type Theme } from "../types";
+import type { Updater } from "../updater";
 
 interface Props {
   store: Store;
   notify: (msg: string, kind?: "info" | "error") => void;
+}
+
+function UpdateSettings({ store, updater }: { store: Store; updater: Updater }) {
+  const [version, setVersion] = useState("");
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => undefined);
+  }, []);
+  const { state } = updater;
+  const status =
+    state.status === "checking" ? "Checking…"
+    : state.status === "current" ? "You have the latest version."
+    : state.status === "downloading" ? `Downloading ${state.version}…`
+    : state.status === "ready" ? `${state.version} is downloaded and ready to install.`
+    : state.status === "installing" ? `Installing ${state.version}…`
+    : state.status === "error" ? `Couldn't check for updates: ${state.message}`
+    : "";
+  return (
+    <section>
+      <h3>Updates</h3>
+      <p className="small">3Devil {version}</p>
+      <label className="inline">
+        <input
+          type="checkbox"
+          checked={store.state!.settings.autoUpdate ?? true}
+          onChange={(e) => store.actions.setAutoUpdate(e.target.checked)}
+        />
+        Check for updates automatically
+      </label>
+      <p className="muted small">
+        New versions download in the background; nothing installs until you click <em>Restart to update</em>.
+      </p>
+      <div className="btn-row">
+        <button onClick={updater.checkNow} disabled={state.status === "checking" || state.status === "downloading" || state.status === "installing"}>
+          Check now
+        </button>
+        {state.status === "ready" && <button className="primary" onClick={updater.installAndRestart}>Restart to update</button>}
+      </div>
+      {status && <p className={`small ${state.status === "error" ? "error-text" : "muted"}`}>{status}</p>}
+    </section>
+  );
 }
 
 function SlicerRow({ store, id, notify }: Props & { id: SlicerId }) {
@@ -65,7 +107,7 @@ const THEMES: [Theme, string][] = [
   ["dark", "Dark"],
 ];
 
-export function SettingsView({ store, notify }: Props) {
+export function SettingsView({ store, notify, updater }: Props & { updater: Updater }) {
   const { settings } = store.state!;
   return (
     <div className="settings">
@@ -116,6 +158,7 @@ export function SettingsView({ store, notify }: Props) {
       </section>
       <PrinterSettings store={store} notify={notify} />
       <DriveThruSettingsSection store={store} />
+      <UpdateSettings store={store} updater={updater} />
     </div>
   );
 }

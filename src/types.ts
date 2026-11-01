@@ -155,6 +155,8 @@ export interface Settings {
   reuseSlicerWindow?: boolean;
   /** Colour theme; "system" (the default) follows the OS. */
   theme?: Theme;
+  /** Check GitHub for new versions and download them in the background (default on). */
+  autoUpdate?: boolean;
   printers?: PrinterConfig[];
   driveThru?: DriveThruSettings;
 }
