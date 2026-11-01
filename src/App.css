@@ -18,8 +18,19 @@
   background: var(--bg);
 }
 
+/* Light colours: picked in Settings, or following the system when set to System. */
+:root[data-theme="light"] {
+  --bg: #f3f3f5;
+  --panel: #ffffff;
+  --panel-2: #eceef2;
+  --border: #d9dbe1;
+  --text: #1c1d21;
+  --muted: #686d78;
+  color-scheme: light;
+}
+
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #f3f3f5;
     --panel: #ffffff;
     --panel-2: #eceef2;
@@ -172,7 +183,9 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .badge { position: absolute; top: 6px; right: 6px; font-size: 11px; padding: 1px 7px; border-radius: 99px; font-weight: 600; }
 .badge.done { background: var(--ok); color: #fff; }
-.badge.queued { background: var(--warn); color: #222; }
+.badge.queued { background: var(--warn); color: #222; display: inline-flex; align-items: center; gap: 4px; padding-right: 3px; }
+.badge-x { background: none; border: none; padding: 0; width: 15px; height: 15px; border-radius: 50%; font-size: 9px; line-height: 1; color: inherit; display: inline-grid; place-items: center; }
+.badge-x:hover:not(:disabled) { background: rgba(0, 0, 0, 0.18); }
 .part-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .part-count { display: flex; align-items: center; justify-content: space-between; }
 .count { font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -286,6 +299,8 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .job-items { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
 .job-item { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
 .job-item input { width: 54px; padding: 2px 6px; }
+.job-item-remove { width: 20px; height: 20px; font-size: 11px; background: none; border-color: transparent; color: var(--muted); }
+.job-item-remove:hover:not(:disabled) { color: var(--danger); border-color: var(--border); }
 .pill { font-size: 12px; padding: 2px 8px; border-radius: 99px; }
 .pill-done { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
 .pill-failed { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
@@ -324,3 +339,4 @@ label.inline { display: flex; gap: 10px; align-items: center; }
   word-break: break-word;
 }
 .toast.error { border-left-color: var(--danger); }
+.queued-note button { margin-left: 8px; }

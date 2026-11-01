@@ -92,6 +92,16 @@ export function JobsView({ store, project, onSend, onFocusPart, onReview }: Prop
                 ) : (
                   <span className="muted">×{it.qty}</span>
                 )}
+                {job.status === "queued" && (
+                  <button
+                    className="icon-btn job-item-remove"
+                    title={job.items.length === 1 ? "Remove from the queue (deletes this job)" : "Remove from this job"}
+                    aria-label={`Remove ${part.name} from this job`}
+                    onClick={() => actions.removeJobItem(project.id, job.id, it.partId)}
+                  >
+                    ✕
+                  </button>
+                )}
               </span>
             );
           })}

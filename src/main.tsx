@@ -1,6 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { applyStoredTheme } from "./theme";
+
+applyStoredTheme();
 
 const ready =
   import.meta.env.DEV && !("__TAURI_INTERNALS__" in window) ? import("./devMock") : Promise.resolve();

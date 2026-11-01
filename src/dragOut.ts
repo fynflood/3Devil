@@ -14,7 +14,8 @@ export function dragImage(thumb: HTMLImageElement | null, count: number): string
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = ICON;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#262932";
+  const css = getComputedStyle(document.documentElement);
+  ctx.fillStyle = css.getPropertyValue("--panel-2").trim() || "#262932";
   ctx.beginPath();
   ctx.roundRect(0, 0, ICON, ICON, 10);
   ctx.fill();
@@ -23,7 +24,7 @@ export function dragImage(thumb: HTMLImageElement | null, count: number): string
     const label = String(count);
     ctx.font = "bold 15px sans-serif";
     const w = Math.max(24, ctx.measureText(label).width + 12);
-    ctx.fillStyle = "#e2683c";
+    ctx.fillStyle = css.getPropertyValue("--accent").trim() || "#e2683c";
     ctx.beginPath();
     ctx.roundRect(ICON - w - 4, 4, w, 22, 11);
     ctx.fill();

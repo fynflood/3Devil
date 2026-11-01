@@ -146,11 +146,15 @@ export interface DriveThruLibrary {
   products: DriveThruProduct[];
 }
 
+export type Theme = "system" | "light" | "dark";
+
 export interface Settings {
   slicers: Record<SlicerId, string[] | null>;
   defaultSlicer: SlicerId;
   /** Send files to an already-open slicer window (default on). */
   reuseSlicerWindow?: boolean;
+  /** Colour theme; "system" (the default) follows the OS. */
+  theme?: Theme;
   printers?: PrinterConfig[];
   driveThru?: DriveThruSettings;
 }

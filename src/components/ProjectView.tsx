@@ -140,6 +140,8 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
     }
   }, [selected, project, actions, notify]);
 
+  const unqueue = useCallback((id: string) => actions.unqueueParts(project.id, [id]), [actions, project.id]);
+
   const send = useCallback(async (ids: string[], slicer: SlicerId, recordJob: boolean) => {
     try {
       const job = await sendToSlicer(store, project, ids, slicer, recordJob);
@@ -334,6 +336,7 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
                             onFocus={setFocusId}
                             onAdjust={adjust}
                             onDragOut={dragOut}
+                            onUnqueue={unqueue}
                           />
                         ))}
                       </div>
@@ -385,6 +388,17 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
           >
             Queue job
           </button>
+          {sel.some((id) => queued.has(id)) && (
+            <button
+              onClick={() => {
+                actions.unqueueParts(project.id, sel);
+                notify(`Removed ${sel.filter((id) => queued.has(id)).length} part(s) from the queue.`);
+              }}
+              title="Take the selected parts out of every queued print job"
+            >
+              Remove from queue
+            </button>
+          )}
           <button onClick={() => actions.updateParts(project.id, sel, (p) => { p.printed = p.required; })}>Mark printed</button>
           <span className="qty-set">
             <input type="number" min={1} value={bulkQty} onChange={(e) => setBulkQty(e.target.value)} title="Copies needed" />

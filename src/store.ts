@@ -11,6 +11,7 @@ import type {
   PrinterConfig,
   Project,
   SlicerId,
+  Theme,
 } from "./types";
 
 const EMPTY: AppState = {
@@ -386,6 +387,25 @@ export function useStore() {
         if (job) fn(job);
       });
     },
+    /** Takes one part out of a job; a job left empty is deleted. */
+    removeJobItem(projectId: string, jobId: string, partId: string) {
+      withProject(projectId, (p) => {
+        const job = p.jobs.find((j) => j.id === jobId);
+        if (!job) return;
+        job.items = job.items.filter((it) => it.partId !== partId);
+        if (!job.items.length) p.jobs = p.jobs.filter((j) => j.id !== jobId);
+      });
+    },
+    /** Takes parts out of every queued job; jobs left empty are deleted. */
+    unqueueParts(projectId: string, partIds: string[]) {
+      const ids = new Set(partIds);
+      withProject(projectId, (p) => {
+        for (const job of p.jobs) {
+          if (job.status === "queued") job.items = job.items.filter((it) => !ids.has(it.partId));
+        }
+        p.jobs = p.jobs.filter((j) => j.items.length);
+      });
+    },
     deleteJob(projectId: string, jobId: string) {
       withProject(projectId, (p) => {
         p.jobs = p.jobs.filter((j) => j.id !== jobId);
@@ -423,6 +443,11 @@ export function useStore() {
     setReuseSlicerWindow(value: boolean) {
       mutate((s) => {
         s.settings.reuseSlicerWindow = value;
+      });
+    },
+    setTheme(theme: Theme) {
+      mutate((s) => {
+        s.settings.theme = theme;
       });
     },
     };

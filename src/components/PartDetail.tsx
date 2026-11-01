@@ -45,7 +45,12 @@ export function PartDetail({ store, project, part, queued, onSend, onClose }: Pr
             <input type="number" min={0} value={part.failed} onChange={(e) => update({ failed: num(e.target.value) })} />
           </label>
         </div>
-        {queued > 0 && <p className="muted">{queued} in queued print jobs.</p>}
+        {queued > 0 && (
+          <p className="muted queued-note">
+            {queued} in queued print jobs.
+            <button className="link" onClick={() => store.actions.unqueueParts(project.id, [part.id])}>Remove from queue</button>
+          </p>
+        )}
         {part.printSeconds ? <p className="muted">Last tracked print: {formatDuration(part.printSeconds)} per copy.</p> : null}
         <div className="btn-row">
           <button onClick={() => update({ printed: part.required })} disabled={part.printed >= part.required}>Mark all printed</button>

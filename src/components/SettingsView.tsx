@@ -4,7 +4,7 @@ import { api, joinCommand, splitCommand } from "../api";
 import type { Store } from "../store";
 import { PrinterSettings } from "./PrinterSettings";
 import { DriveThruSettingsSection } from "./DriveThruSettings";
-import { SLICER_NAMES, type SlicerId } from "../types";
+import { SLICER_NAMES, type SlicerId, type Theme } from "../types";
 
 interface Props {
   store: Store;
@@ -59,11 +59,34 @@ function SlicerRow({ store, id, notify }: Props & { id: SlicerId }) {
   );
 }
 
+const THEMES: [Theme, string][] = [
+  ["system", "System"],
+  ["light", "Light"],
+  ["dark", "Dark"],
+];
+
 export function SettingsView({ store, notify }: Props) {
   const { settings } = store.state!;
   return (
     <div className="settings">
       <h2>Settings</h2>
+      <section>
+        <h3>Appearance</h3>
+        <div className="filters" role="radiogroup" aria-label="Theme">
+          {THEMES.map(([id, label]) => (
+            <button
+              key={id}
+              role="radio"
+              aria-checked={(settings.theme ?? "system") === id}
+              className={`chip${(settings.theme ?? "system") === id ? " active" : ""}`}
+              onClick={() => store.actions.setTheme(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="muted small">System follows your computer's light or dark setting.</p>
+      </section>
       <section>
         <h3>Slicers</h3>
         {(Object.keys(SLICER_NAMES) as SlicerId[]).map((id) => (

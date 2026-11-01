@@ -8,6 +8,7 @@ import { NewProjectDialog } from "./components/NewProjectDialog";
 import { PrinterCard } from "./components/PrinterCard";
 import { ReviewPrompt } from "./components/ReviewPrompt";
 import { DriveThruView } from "./components/DriveThruView";
+import { applyTheme } from "./theme";
 import type { Part, Project } from "./types";
 import "./App.css";
 
@@ -39,6 +40,12 @@ export default function App() {
   useEffect(() => {
     if (error) notify(error, "error");
   }, [error, notify]);
+
+  const theme = state?.settings.theme ?? "system";
+  useEffect(() => {
+    if (state) applyTheme(theme);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme, !!state]);
 
   useEffect(() => {
     if (state && view === null && state.projects.length) setView(state.projects[0].id);

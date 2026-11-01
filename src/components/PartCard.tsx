@@ -13,6 +13,8 @@ interface Props {
   onAdjust: (id: string, delta: number) => void;
   /** Dragging the card out of the window, e.g. onto a slicer. */
   onDragOut: (id: string, thumb: HTMLImageElement | null) => void;
+  /** Takes the part out of every queued print job. */
+  onUnqueue: (id: string) => void;
 }
 
 function useVisible<T extends Element>() {
@@ -29,7 +31,7 @@ function useVisible<T extends Element>() {
 }
 
 export const PartCard = memo(function PartCard({
-  part, status, queued, selected, focused, onToggle, onFocus, onAdjust, onDragOut,
+  part, status, queued, selected, focused, onToggle, onFocus, onAdjust, onDragOut, onUnqueue,
 }: Props) {
   const [ref, visible] = useVisible<HTMLDivElement>();
   const imgRef = useRef<HTMLImageElement>(null);
@@ -67,7 +69,22 @@ export const PartCard = memo(function PartCard({
         ) : (
           <span className="thumb-spinner" />
         )}
-        {queued > 0 && status !== "done" && <span className="badge queued">{queued} queued</span>}
+        {queued > 0 && status !== "done" && (
+          <span className="badge queued">
+            {queued} queued
+            <button
+              className="badge-x"
+              title="Remove from queue"
+              aria-label={`Remove ${part.name} from the queue`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onUnqueue(part.id);
+              }}
+            >
+              ✕
+            </button>
+          </span>
+        )}
         {status === "done" && <span className="badge done">✓</span>}
       </div>
       <div className="part-name" title={part.name}>{part.name}</div>
