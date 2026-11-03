@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -259,8 +260,51 @@ fn which(bin: &str) -> Option<String> {
     None
 }
 
+/// A command for a program installed on the system. Inside an AppImage, the
+/// environment points at the libraries bundled with 3Devil (`LD_LIBRARY_PATH`,
+/// GTK and GIO module paths, ...); system programs such as `flatpak` crash
+/// loading those, so they get the environment without them.
+fn external(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    if let Some(appdir) = std::env::var_os("APPDIR").filter(|d| !d.is_empty()) {
+        for (key, value) in outside_appimage(Path::new(&appdir), std::env::vars_os()) {
+            match value {
+                Some(v) => cmd.env(key, v),
+                None => cmd.env_remove(key),
+            };
+        }
+    }
+    cmd
+}
+
+/// Changes to `vars` that drop every entry under the AppImage mount `appdir`:
+/// a new value, or `None` to unset a variable left with nothing.
+fn outside_appimage(
+    appdir: &Path,
+    vars: impl Iterator<Item = (OsString, OsString)>,
+) -> Vec<(OsString, Option<OsString>)> {
+    let mut changes = Vec::new();
+    for (key, value) in vars {
+        if ["APPDIR", "APPIMAGE", "ARGV0"].iter().any(|k| key == *k) {
+            changes.push((key, None));
+            continue;
+        }
+        let paths: Vec<PathBuf> = std::env::split_paths(&value).collect();
+        if !paths.iter().any(|p| p.starts_with(appdir)) {
+            continue;
+        }
+        let kept: Vec<PathBuf> = paths
+            .into_iter()
+            .filter(|p| !p.as_os_str().is_empty() && !p.starts_with(appdir))
+            .collect();
+        let value = (!kept.is_empty()).then(|| std::env::join_paths(&kept).ok()).flatten();
+        changes.push((key, value));
+    }
+    changes
+}
+
 fn flatpak_app(id: &str) -> Option<Vec<String>> {
-    let out = Command::new("flatpak").args(["info", id]).output().ok()?;
+    let out = external("flatpak").args(["info", id]).output().ok()?;
     out.status
         .success()
         .then(|| vec!["flatpak".into(), "run".into(), id.into()])
@@ -285,6 +329,7 @@ fn detect_slicers() -> DetectedSlicers {
         first_existing(&["/Applications/BambuStudio.app/Contents/MacOS/BambuStudio"])
     } else {
         which("bambu-studio")
+            .or_else(|| which("bambustudio"))
             .map(|p| vec![p])
             .or_else(|| flatpak_app("com.bambulab.BambuStudio"))
     };
@@ -312,7 +357,7 @@ fn detect_slicers() -> DetectedSlicers {
 #[tauri::command]
 fn open_in_slicer(command: Vec<String>, files: Vec<String>, single_instance: bool) -> Result<(), String> {
     let (program, args) = command.split_first().ok_or("No slicer configured")?;
-    let mut child = Command::new(program)
+    let mut child = external(program)
         .args(args)
         .args(single_instance.then_some("--single-instance"))
         .args(&files)
@@ -470,5 +515,28 @@ mod tests {
         let out = missing_files(vec![present.to_string_lossy().into(), absent.clone()]);
         assert_eq!(out, vec![absent]);
         fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn external_programs_skip_appimage_libraries() {
+        let os = |s: &str| OsString::from(s);
+        let vars = [
+            ("APPDIR", "/tmp/.mount_x"),
+            ("LD_LIBRARY_PATH", "/tmp/.mount_x/usr/lib/:/tmp/.mount_x/lib:/usr/lib"),
+            ("GIO_MODULE_DIR", "/tmp/.mount_x//usr/lib/gio/modules"),
+            ("PATH", "/tmp/.mount_x/usr/bin/:/home/me/.local/bin:/usr/bin"),
+            ("HOME", "/home/me"),
+            ("GTK_THEME", "Adwaita:dark"),
+        ];
+        let changes = outside_appimage(Path::new("/tmp/.mount_x"), vars.iter().map(|(k, v)| (os(k), os(v))));
+        assert_eq!(
+            changes,
+            vec![
+                (os("APPDIR"), None),
+                (os("LD_LIBRARY_PATH"), Some(os("/usr/lib"))),
+                (os("GIO_MODULE_DIR"), None),
+                (os("PATH"), Some(os("/home/me/.local/bin:/usr/bin"))),
+            ]
+        );
     }
 }

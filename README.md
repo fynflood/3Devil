@@ -32,7 +32,7 @@ The builds aren't code-signed yet, so Windows and macOS will warn the first time
 
 ### Linux
 
-Pick the package for your distribution:
+Pick the package for your distribution. They need a 2024 or newer release (Ubuntu 24.04, Debian 13, Fedora 40 or later; any up-to-date Arch).
 
 - **Debian, Ubuntu, Mint, Pop!_OS** — download the `.deb`, then:
 
@@ -53,7 +53,7 @@ Pick the package for your distribution:
   ./3Devil_*_amd64.AppImage
   ```
 
-  AppImages need FUSE 2 (`sudo pacman -S fuse2` on Arch, `sudo apt install libfuse2` on Ubuntu 22.04+).
+  AppImages need FUSE 2 (`sudo pacman -S fuse2` on Arch, `sudo apt install libfuse2t64` on Ubuntu 24.04+).
 
 ### Updates
 

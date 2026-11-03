@@ -21,8 +21,9 @@ jobs:
             args: --target aarch64-apple-darwin
           - platform: macos-latest
             args: --target x86_64-apple-darwin
-          # The oldest supported Ubuntu keeps the AppImage compatible with older distros.
-          - platform: ubuntu-22.04
+          # The AppImage bundles this Ubuntu's GTK. 22.04's older GTK broke dragging files
+          # into other apps on current distros; 24.04 needs glibc 2.39 or newer.
+          - platform: ubuntu-24.04
             args: ""
           - platform: windows-latest
             args: ""
@@ -31,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux build dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
