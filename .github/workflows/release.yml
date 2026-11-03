@@ -21,8 +21,8 @@ jobs:
             args: --target aarch64-apple-darwin
           - platform: macos-latest
             args: --target x86_64-apple-darwin
-          # The AppImage bundles this Ubuntu's GTK. 22.04's older GTK broke dragging files
-          # into other apps on current distros; 24.04 needs glibc 2.39 or newer.
+          # The AppImage bundles this Ubuntu's GTK, WebKit and GLib, so a newer
+          # base keeps them closer to current distros; it needs glibc 2.39+.
           - platform: ubuntu-24.04
             args: ""
           - platform: windows-latest

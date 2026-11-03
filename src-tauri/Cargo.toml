@@ -49,3 +49,9 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# A copy of drag 2.1.1 (behind tauri-plugin-drag) that keeps the dragged files
+# available until the drag ends, so drops on Wayland don't arrive empty. See
+# the "Patched for 3Devil" note in vendor/drag/src/platform_impl/gtk/mod.rs.
+[patch.crates-io]
+drag = { path = "vendor/drag" }
