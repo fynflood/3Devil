@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { api } from "../api";
-import { activeParts, describeScan, partStatus, projectProgress, queuedCounts, type Store } from "../store";
+import { api, formatDuration, formatLongDuration } from "../api";
+import { activeParts, describeScan, partStatus, projectProgress, queuedCounts, timeLeft, type Store } from "../store";
 import { sendToSlicer } from "../slicers";
 import { dragFiles, dragImage } from "../dragOut";
 import { SLICER_NAMES, type Part, type PartStatus, type Project, type SlicerId } from "../types";
@@ -11,6 +11,7 @@ import { FolderPanel } from "./FolderPanel";
 import { FolderButton, folderOf } from "./FolderButton";
 import { PartDetail } from "./PartDetail";
 import { JobsView } from "./JobsView";
+import { locateFolder, useMissingFolders } from "./SyncSettings";
 
 interface Props {
   store: Store;
@@ -51,6 +52,7 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
 
   const queued = useMemo(() => queuedCounts(project), [project]);
   const progress = projectProgress(project);
+  const missingFolders = useMissingFolders(project.folders);
   const pct = progress.required ? Math.round((progress.printed / progress.required) * 100) : 0;
 
   const hidden = useMemo(() => new Set(project.hiddenGroups), [project.hiddenGroups]);
@@ -218,6 +220,7 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
             </span>
           </div>
           <div className="progress"><div style={{ width: `${pct}%` }} /></div>
+          <TimeLeft project={project} />
         </div>
       </header>
 
@@ -245,6 +248,15 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
         />
         {/^https?:\/\//.test(project.sourceUrl) && <button onClick={() => openUrl(project.sourceUrl)}>↗</button>}
       </div>
+
+      {missingFolders.map((f) => (
+        <div key={f} className="banner">
+          <span>
+            This project's folder isn't on this computer: <span className="mono">{f}</span>
+          </span>
+          <button onClick={() => locateFolder(store, f, notify)}>Locate…</button>
+        </div>
+      ))}
 
       <div className="project-main">
         <div className="project-content">
@@ -426,6 +438,35 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
           <button className="link" onClick={() => setSelected(new Set())}>Clear</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Printer time still needed, with how much of it is a guess. */
+function TimeLeft({ project }: { project: Project }) {
+  const t = timeLeft(project);
+  if (!t.remainingParts) return null;
+  const total = t.known + t.guessed;
+  if (!total) {
+    return (
+      <div className="muted small time-left">
+        No print times yet. They're recorded from tracked prints, or enter them on a part.
+      </div>
+    );
+  }
+  const plural = (n: number) => `${n} part${n === 1 ? "" : "s"}`;
+  const detail = !t.untimed
+    ? ""
+    : t.guessable
+      ? ` · ${plural(t.untimed)} guessed from file size`
+      : ` · ${plural(t.untimed)} with no time yet`;
+  const breakdown = [
+    `${formatDuration(t.known)} from recorded print times`,
+    t.guessed ? `${formatDuration(t.guessed)} guessed for ${plural(t.untimed)} from file size` : null,
+  ].filter(Boolean).join("\n");
+  return (
+    <div className="muted small time-left" title={breakdown}>
+      About {formatLongDuration(total)} of printing left{detail}
     </div>
   );
 }

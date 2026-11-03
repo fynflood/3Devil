@@ -12,6 +12,8 @@ import { applyTheme, DEFAULT_THEME } from "./theme";
 import { useUpdater } from "./updater";
 import { UpdateCard } from "./components/UpdateCard";
 import { useReorder } from "./useReorder";
+import { api } from "./api";
+import type { Store } from "./store";
 import type { Part, Project } from "./types";
 import "./App.css";
 
@@ -48,6 +50,10 @@ export default function App() {
     if (error) notify(error, "error");
   }, [error, notify]);
 
+  useEffect(() => {
+    if (store.externalChanges) notify("Updated with changes from another computer.");
+  }, [store.externalChanges, notify]);
+
   const theme = state?.settings.theme ?? DEFAULT_THEME;
   useEffect(() => {
     if (state) applyTheme(theme);
@@ -80,7 +86,7 @@ export default function App() {
     setFocusRequest((f) => ({ partId, n: (f?.n ?? 0) + 1 }));
   }, []);
 
-  if (!state) return <div className="loading">{error ?? "Loading…"}</div>;
+  if (!state) return <LoadProblem store={store} />;
 
   const review = state.projects
     .flatMap((project) => project.jobs.map((job) => ({ project, job })))
@@ -245,6 +251,36 @@ export default function App() {
         />
       )}
       {toast && <div className={`toast ${toast.kind}`} onClick={() => setToast(null)}>{toast.msg}</div>}
+    </div>
+  );
+}
+
+/** Shown until projects load, with a way out if a shared folder can't be reached. */
+function LoadProblem({ store }: { store: Store }) {
+  const [shared, setShared] = useState<string | null>(null);
+  useEffect(() => {
+    if (store.error) api.dataLocation().then((l) => setShared(l.sharedDir)).catch(() => undefined);
+  }, [store.error]);
+  if (!store.error) return <div className="loading">Loading…</div>;
+  return (
+    <div className="loading">
+      <p>{store.error}</p>
+      <div className="btn-row center">
+        <button className="primary" onClick={() => store.reload().catch((e) => store.setError(String(e)))}>Try again</button>
+        {shared && (
+          <button
+            onClick={() =>
+              api
+                .setSharedFolder(null, false)
+                .then(store.reload)
+                .catch((e) => store.setError(String(e)))
+            }
+            title="Go back to the projects this computer had before sharing"
+          >
+            Use this computer's projects
+          </button>
+        )}
+      </div>
     </div>
   );
 }

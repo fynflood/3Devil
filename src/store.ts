@@ -22,6 +22,14 @@ const EMPTY: AppState = {
 
 export const uid = () => crypto.randomUUID();
 
+/** How often to look for changes made to the projects file elsewhere. */
+const CHECK_FILE_MS = 5000;
+
+function parseState(json: string): AppState {
+  const parsed = JSON.parse(json) as AppState | null;
+  return parsed ? { ...EMPTY, ...parsed, settings: { ...EMPTY.settings, ...parsed.settings } } : EMPTY;
+}
+
 /** Job lines for parts, each set to the copies still needed beyond what's already queued. */
 function jobItems(project: Project, partIds: string[]): JobItem[] {
   const queued = queuedCounts(project);
@@ -80,6 +88,63 @@ export function projectProgress(project: Project) {
   return { required, printed, partsDone, parts: parts.length };
 }
 
+/** Fewest timed parts before untimed ones are guessed from them. */
+const MIN_TIMED_FOR_GUESS = 3;
+
+/**
+ * Printer time still needed for a project's remaining copies. Parts with no
+ * time yet are guessed from the timed ones by file size, once there are enough.
+ */
+export function timeLeft(project: Project) {
+  const parts = activeParts(project)
+    .map((part) => ({ part, left: Math.max(0, part.required - part.printed) }))
+    .filter((x) => x.left > 0);
+  const timed = activeParts(project).filter((p) => p.printSeconds && p.size > 0);
+  let known = 0;
+  let guessed = 0;
+  let untimed = 0;
+  // Seconds per byte across timed parts: rough, but better than nothing.
+  const rate =
+    timed.length >= MIN_TIMED_FOR_GUESS
+      ? timed.reduce((t, p) => t + p.printSeconds!, 0) / timed.reduce((t, p) => t + p.size, 0)
+      : null;
+  for (const { part, left } of parts) {
+    if (part.printSeconds) known += part.printSeconds * left;
+    else {
+      untimed++;
+      if (rate) guessed += rate * part.size * left;
+    }
+  }
+  return { known, guessed, untimed, guessable: rate !== null, remainingParts: parts.length };
+}
+
+/**
+ * Saves per-copy print times from a tracked job. A part printed on its own gets
+ * the exact time; on a shared plate, each part gets a share of the plate's time
+ * by file size, unless it already has a time of its own.
+ */
+function recordPrintTimes(project: Project, job: Job) {
+  const secs = job.printer?.durationSec;
+  if (!secs) return;
+  const items = job.items
+    .map((it) => ({ it, part: project.parts.find((x) => x.id === it.partId) }))
+    .filter((x): x is { it: JobItem; part: Part } => !!x.part && x.it.qty > 0);
+  if (!items.length || !items.some((x) => (x.it.good ?? 0) > 0)) return;
+  if (items.length === 1) {
+    const { it, part } = items[0];
+    part.printSeconds = Math.round(secs / it.qty);
+    part.printSecondsEstimated = undefined;
+    return;
+  }
+  const weight = items.reduce((t, x) => t + Math.max(1, x.part.size) * x.it.qty, 0);
+  // Per copy: the plate time times this part's share of one copy's size.
+  for (const { part } of items) {
+    if (part.printSeconds && !part.printSecondsEstimated) continue;
+    part.printSeconds = Math.round((secs * Math.max(1, part.size)) / weight);
+    part.printSecondsEstimated = true;
+  }
+}
+
 function partsFromFiles(folder: string, files: ModelFile[], existing: Set<string>): Part[] {
   const root = basename(folder);
   const now = Date.now();
@@ -122,27 +187,60 @@ export function useStore() {
   const [error, setError] = useState<string | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
   const latest = useRef<AppState | null>(null);
+  /** The projects file as last read or written here; see `api.stateStamp`. */
+  const stamp = useRef<string | null>(null);
+  const saving = useRef(false);
+  /** Counts reloads caused by another computer changing the shared file. */
+  const [externalChanges, setExternalChanges] = useState(0);
 
   useEffect(() => {
     api
       .loadState()
-      .then((json) => {
-        const parsed = JSON.parse(json) as AppState | null;
-        const loaded = parsed
-          ? { ...EMPTY, ...parsed, settings: { ...EMPTY.settings, ...parsed.settings } }
-          : EMPTY;
+      .then(async (json) => {
+        const loaded = parseState(json);
         latest.current = loaded;
         setState(loaded);
+        stamp.current = await api.stateStamp();
       })
       .catch((e) => setError(String(e)));
   }, []);
 
-  const flush = useCallback(() => {
+  const flush = useCallback(async () => {
     // Only write when a save is pending, so closing never rewrites unchanged state.
     if (saveTimer.current === undefined) return;
     window.clearTimeout(saveTimer.current);
     saveTimer.current = undefined;
-    if (latest.current) api.saveState(JSON.stringify(latest.current)).catch((e) => setError(String(e)));
+    if (!latest.current) return;
+    saving.current = true;
+    await api
+      .saveState(JSON.stringify(latest.current))
+      .then((s) => (stamp.current = s))
+      .catch((e) => setError(String(e)))
+      .finally(() => (saving.current = false));
+  }, []);
+
+  // Pick up changes another computer made to a shared projects file. Edits
+  // waiting to be saved here win; the file is checked again after they're written.
+  useEffect(() => {
+    const busy = () => saveTimer.current !== undefined || saving.current || stamp.current === null;
+    const check = async () => {
+      if (busy()) return;
+      const now = await api.stateStamp().catch(() => "");
+      // A missing file means the folder is unavailable, not that everything was deleted.
+      if (!now || now === stamp.current || busy()) return;
+      const json = await api.loadState().catch(() => null);
+      if (!json || json === "null" || busy()) return;
+      stamp.current = now;
+      latest.current = parseState(json);
+      setState(latest.current);
+      setExternalChanges((n) => n + 1);
+    };
+    const timer = window.setInterval(check, CHECK_FILE_MS);
+    window.addEventListener("focus", check);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", check);
+    };
   }, []);
 
   useEffect(() => {
@@ -249,7 +347,11 @@ export function useStore() {
           return [f, await api.scanModels(f).catch(() => [])] as const;
         }),
       );
-      const missing = new Set(await api.missingFiles(project.parts.map((p) => p.path)));
+      // A folder that isn't here at all (unplugged drive, or not located yet on
+      // this computer) says nothing about its files, so leave those parts be.
+      const goneFolders = await api.missingFiles(project.folders);
+      const inGoneFolder = (path: string) => goneFolders.some((f) => path.startsWith(f));
+      const missing = new Set(await api.missingFiles(project.parts.map((p) => p.path).filter((p) => !inGoneFolder(p))));
       const have = new Set(project.parts.map((x) => x.path));
       const newParts: Part[] = [];
       for (const [folder, files] of scans) {
@@ -260,7 +362,7 @@ export function useStore() {
       withProject(projectId, (p) => {
         const existing = new Set(p.parts.map((x) => x.path));
         p.parts.push(...newParts.filter((x) => !existing.has(x.path)));
-        for (const part of p.parts) part.missing = missing.has(part.path) || undefined;
+        for (const part of p.parts) if (!inGoneFolder(part.path)) part.missing = missing.has(part.path) || undefined;
       });
       return { added: newParts.length, missing: missing.size, extracted, failed };
     },
@@ -365,9 +467,8 @@ export function useStore() {
           if (!part) continue;
           part.printed += it.good;
           part.failed += it.qty - it.good;
-          const secs = job.printer?.durationSec;
-          if (secs && it.good > 0 && job.items.length === 1) part.printSeconds = Math.round(secs / it.qty);
         }
+        recordPrintTimes(p, job);
         job.status = total > 0 ? "done" : "failed";
         job.finishedAt = Date.now();
         if (job.printer) job.printer.awaitingReview = undefined;
@@ -468,5 +569,18 @@ export function useStore() {
     return actions;
   }, [mutate, withProject]);
 
-  return { state, error, setError, actions };
+  /** Writes any pending changes now, e.g. before switching where projects are kept. */
+  const saveNow = flush;
+
+  /** Saves, then reads the projects file again (after its location or folder mappings change). */
+  const reload = useCallback(async () => {
+    await flush();
+    const json = await api.loadState();
+    latest.current = parseState(json);
+    setState(latest.current);
+    setError(null);
+    stamp.current = await api.stateStamp();
+  }, [flush]);
+
+  return { state, error, setError, actions, externalChanges, saveNow, reload };
 }

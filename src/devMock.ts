@@ -81,6 +81,44 @@ function simulatePrusa(id: string, password: string) {
   }, 1000);
 }
 
+const STAMP = "3devil-state-stamp";
+const bumpStamp = () => {
+  const next = String(Number(localStorage.getItem(STAMP) ?? "0") + 1);
+  localStorage.setItem(STAMP, next);
+  return next;
+};
+
+type MockLocal = { sharedDir: string | null; pathMap: { from: string; to: string }[] };
+const mockLocal = (): MockLocal => ({ sharedDir: null, pathMap: [], ...JSON.parse(localStorage.getItem("3devil-mock-local") ?? "{}") });
+const saveMockLocal = (l: MockLocal) => localStorage.setItem("3devil-mock-local", JSON.stringify(l));
+
+/** Swaps mapped folder prefixes like the backend: "in" on load, "out" on save. */
+function mapPaths(json: string, dir: "in" | "out"): string {
+  const { pathMap } = mockLocal();
+  if (!pathMap.length || json === "null") return json;
+  const state = JSON.parse(json);
+  const swap = (p: string) => {
+    for (const m of pathMap) {
+      const [a, b] = dir === "in" ? [m.from, m.to] : [m.to, m.from];
+      if (p === a || p.startsWith(a + "/")) return b + p.slice(a.length);
+    }
+    return p;
+  };
+  for (const project of state.projects ?? []) {
+    project.folders = (project.folders ?? []).map(swap);
+    for (const part of project.parts ?? []) part.path = swap(part.path);
+  }
+  return JSON.stringify(state);
+}
+
+/** Simulates another computer editing the shared projects file. */
+(window as unknown as { __mockOtherComputer: (fn: (s: { projects: { name: string }[] }) => void) => void }).__mockOtherComputer = (fn) => {
+  const state = JSON.parse(localStorage.getItem("3devil-state") ?? "null");
+  fn(state);
+  localStorage.setItem("3devil-state", JSON.stringify(state));
+  bumpStamp();
+};
+
 const MOCK_LIBRARY = [
   { productId: "500001", orderProductId: 1, name: "Modular Dungeon Tiles", publisher: { name: "Example Forge" }, fileLastModified: "2026-10-01T12:00:00+00:00", files: [{ index: 0, filename: "Dungeon_Tiles.zip" }, { index: 1, filename: "Build_Guide.pdf" }] },
   { productId: "500002", orderProductId: 2, name: "Coastal Watchtower", publisher: { name: "Example Forge" }, fileLastModified: "2026-09-12T12:00:00+00:00", files: [{ index: 0, filename: "Watchtower_STL.zip" }] },
@@ -115,10 +153,42 @@ mockIPC(async (cmd, args) => {
   const a = (args ?? {}) as Record<string, unknown>;
   switch (cmd) {
     case "load_state":
-      return localStorage.getItem("3devil-state") ?? "null";
+      // A shared folder whose name ends in "-offline" stands in for an unreachable one.
+      if (mockLocal().sharedDir?.endsWith("-offline")) {
+        throw `Can't open the shared projects file ${mockLocal().sharedDir}/3devil-projects.json. Check that the folder is available.`;
+      }
+      return mapPaths(localStorage.getItem("3devil-state") ?? "null", "in");
     case "save_state":
-      localStorage.setItem("3devil-state", a.json as string);
+      localStorage.setItem("3devil-state", mapPaths(a.json as string, "out"));
+      return bumpStamp();
+    case "state_stamp":
+      return localStorage.getItem(STAMP) ?? "0";
+    case "data_location": {
+      const l = mockLocal();
+      return { sharedDir: l.sharedDir, file: `${l.sharedDir ?? "/home/user/.local/share/tech.ouija.threedevil"}/state.json`, pathMap: l.pathMap };
+    }
+    case "inspect_shared_folder":
+      return String(a.dir).endsWith("-existing") ? { projects: 3, modified: Date.now() - 2 * 3600e3 } : null;
+    case "set_shared_folder":
+      saveMockLocal({ ...mockLocal(), sharedDir: (a.dir as string | null) ?? null });
       return null;
+    case "add_path_mapping": {
+      const from = String(a.missing).split("/");
+      const to = String(a.found).split("/");
+      while (from.length > 2 && to.length > 2 && from[from.length - 1] === to[to.length - 1]) {
+        from.pop();
+        to.pop();
+      }
+      const m = { from: from.join("/"), to: to.join("/") };
+      const l = mockLocal();
+      saveMockLocal({ ...l, pathMap: [m, ...l.pathMap.filter((x) => x.from !== m.from)] });
+      return m;
+    }
+    case "remove_path_mapping": {
+      const l = mockLocal();
+      saveMockLocal({ ...l, pathMap: l.pathMap.filter((x) => x.from !== a.from) });
+      return null;
+    }
     case "scan_models":
       console.info("[mock] folder scanning isn't available in the browser");
       return [];
@@ -130,7 +200,8 @@ mockIPC(async (cmd, args) => {
       return res.arrayBuffer();
     }
     case "missing_files":
-      return [];
+      // Folders under /home/other stand in for another computer's paths.
+      return (a.paths as string[]).filter((p) => p.startsWith("/home/other/"));
     case "extract_archives":
       return { extracted: [], failed: [] };
     case "detect_slicers":
@@ -198,11 +269,17 @@ mockIPC(async (cmd, args) => {
     case "plugin:path|join":
       return (a.paths as string[]).join("/");
     case "plugin:dialog|open":
-      return null;
+      // Tests set window.__mockPick to what the folder picker should return.
+      return (window as unknown as { __mockPick?: string }).__mockPick ?? null;
     case "plugin:dialog|confirm":
     case "plugin:dialog|ask":
-    case "plugin:dialog|message":
       return true;
+    case "plugin:dialog|message": {
+      // confirm() goes through here and expects the clicked button's label; always "click" OK.
+      const b = a.buttons as string | { OkCancelCustom?: string[]; OkCustom?: string } | undefined;
+      if (typeof b === "object") return b.OkCancelCustom?.[0] ?? b.OkCustom ?? "Ok";
+      return b === "YesNo" || b === "YesNoCancel" ? "Yes" : "Ok";
+    }
     default:
       if (cmd.startsWith("plugin:opener|")) return null;
       throw new Error(`[mock] unhandled command ${cmd}`);

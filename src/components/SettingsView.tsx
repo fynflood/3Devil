@@ -5,6 +5,7 @@ import { api, joinCommand, splitCommand } from "../api";
 import type { Store } from "../store";
 import { PrinterSettings } from "./PrinterSettings";
 import { DriveThruSettingsSection } from "./DriveThruSettings";
+import { SyncSettings } from "./SyncSettings";
 import { SLICER_NAMES, type SlicerId, type Theme } from "../types";
 import type { Updater } from "../updater";
 import { DEFAULT_THEME } from "../theme";
@@ -159,6 +160,7 @@ export function SettingsView({ store, notify, updater }: Props & { updater: Upda
       </section>
       <PrinterSettings store={store} notify={notify} />
       <DriveThruSettingsSection store={store} />
+      <SyncSettings store={store} notify={notify} />
       <UpdateSettings store={store} updater={updater} />
     </div>
   );

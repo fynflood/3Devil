@@ -1,6 +1,7 @@
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ModelViewer } from "../viewer/ModelViewer";
-import { formatBytes, formatDuration } from "../api";
+import { useEffect, useState } from "react";
+import { formatBytes, formatDuration, parseDuration } from "../api";
 import type { Store } from "../store";
 import { SLICER_NAMES, type Part, type Project, type SlicerId } from "../types";
 
@@ -51,7 +52,7 @@ export function PartDetail({ store, project, part, queued, onSend, onClose }: Pr
             <button className="link" onClick={() => store.actions.unqueueParts(project.id, [part.id])}>Remove from queue</button>
           </p>
         )}
-        {part.printSeconds ? <p className="muted">Last tracked print: {formatDuration(part.printSeconds)} per copy.</p> : null}
+        <PrintTime part={part} onChange={(printSeconds) => update({ printSeconds, printSecondsEstimated: undefined })} />
         <div className="btn-row">
           <button onClick={() => update({ printed: part.required })} disabled={part.printed >= part.required}>Mark all printed</button>
           <button onClick={() => update({ printed: 0 })} disabled={part.printed === 0}>Reset</button>
@@ -110,5 +111,37 @@ export function PartDetail({ store, project, part, queued, onSend, onClose }: Pr
         </button>
       </div>
     </aside>
+  );
+}
+
+/** Per-copy print time: recorded from tracked prints, or typed in from the slicer. */
+function PrintTime({ part, onChange }: { part: Part; onChange: (secs: number | undefined) => void }) {
+  const shown = part.printSeconds ? formatDuration(part.printSeconds) : "";
+  const [text, setText] = useState(shown);
+  useEffect(() => setText(shown), [shown]);
+  const commit = () => {
+    if (!text.trim()) return part.printSeconds && onChange(undefined);
+    const secs = parseDuration(text);
+    if (secs === null) setText(shown);
+    else if (secs !== part.printSeconds) onChange(secs);
+  };
+  return (
+    <label className="block print-time">
+      Print time per copy
+      <input
+        value={text}
+        placeholder="e.g. 1h 20m, from the slicer"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      />
+      <span className="muted small">
+        {!part.printSeconds
+          ? "Recorded automatically when a tracked print of this part finishes."
+          : part.printSecondsEstimated
+            ? "Estimated: its share of a plate printed with other parts."
+            : "Used for the project's time left."}
+      </span>
+    </label>
   );
 }

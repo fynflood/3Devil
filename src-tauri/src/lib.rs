@@ -2,49 +2,14 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tauri::{AppHandle, Manager};
 
 mod drivethru;
 mod preview;
 mod printer;
 mod prusa;
+mod storage;
 
 const MODEL_EXTS: &[&str] = &["stl", "3mf", "obj"];
-
-fn state_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join("state.json"))
-}
-
-/// Returns the saved app state as a JSON string, or `null` on first run.
-#[tauri::command]
-fn load_state(app: AppHandle) -> Result<String, String> {
-    let path = state_path(&app)?;
-    match fs::read_to_string(&path) {
-        Ok(s) => Ok(s),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok("null".into()),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-/// Writes state atomically (temp file + rename) and keeps one backup.
-#[tauri::command]
-fn save_state(app: AppHandle, json: String) -> Result<(), String> {
-    let path = state_path(&app)?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, json.as_bytes()).map_err(|e| e.to_string())?;
-    // State includes printer access codes; keep it readable by this user only.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
-    }
-    if path.exists() {
-        let _ = fs::copy(&path, path.with_extension("json.bak"));
-    }
-    fs::rename(&tmp, &path).map_err(|e| e.to_string())
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -382,8 +347,14 @@ pub fn run() {
         .manage(printer::Printers::default())
         .manage(drivethru::DriveThru::default())
         .invoke_handler(tauri::generate_handler![
-            load_state,
-            save_state,
+            storage::load_state,
+            storage::save_state,
+            storage::state_stamp,
+            storage::data_location,
+            storage::inspect_shared_folder,
+            storage::set_shared_folder,
+            storage::add_path_mapping,
+            storage::remove_path_mapping,
             scan_models,
             read_file_bytes,
             read_model_preview,

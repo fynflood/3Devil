@@ -22,8 +22,10 @@ export interface Part {
   color?: string;
   notes?: string;
   missing?: boolean;
-  /** Actual printer time per copy, from the last tracked print. */
+  /** Printer time per copy: from the last tracked print, or entered by hand. */
   printSeconds?: number;
+  /** `printSeconds` is this part's share of a multi-part plate, not its own print. */
+  printSecondsEstimated?: boolean;
   addedAt: number;
 }
 
