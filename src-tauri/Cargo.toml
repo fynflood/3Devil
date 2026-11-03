@@ -1,6 +1,6 @@
 [package]
 name = "threedevil"
-version = "0.1.3"
+version = "0.1.4"
 description = "Track large multi-part 3D print builds"
 authors = ["fyn"]
 edition = "2024"
