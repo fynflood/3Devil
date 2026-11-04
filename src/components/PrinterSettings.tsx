@@ -50,7 +50,6 @@ export function PrinterSettings({ store, notify }: Props) {
       serial: p?.serial ?? "",
       model: p?.model ?? "",
       accessCode: "",
-      ...(kind === "prusa" ? { username: "maker" } : {}),
     });
 
   const prusa = draft?.kind === "prusa";
@@ -107,8 +106,8 @@ export function PrinterSettings({ store, notify }: Props) {
           <div className="muted small">{KIND_NAMES[draft.kind ?? "bambu"]} printer</div>
           {prusa ? (
             <p className="muted small">
-              Turn on PrusaLink on the printer under <em>Settings → Network → PrusaLink</em>; the same screen shows the user
-              name and password. On an MK3S with Prusa Link on a Raspberry Pi, use the login you made when setting it up.
+              Turn on PrusaLink on the printer under <em>Settings → Network → PrusaLink</em>; the same screen shows the
+              password. On an MK3S with Prusa Link on a Raspberry Pi, use the login you made when setting it up.
             </p>
           ) : (
             <p className="muted small">
@@ -126,8 +125,9 @@ export function PrinterSettings({ store, notify }: Props) {
                 <input className="mono" value={draft.ip} onChange={(e) => editLogin({ ip: e.target.value })} placeholder="192.168.1.60" />
               </label>
               <label className="block">
-                User name
+                User name (optional)
                 <input className="mono" autoComplete="off" value={draft.username ?? ""} onChange={(e) => editLogin({ username: e.target.value.trim() })} placeholder="maker" />
+                <div className="muted small">Only needed if you chose your own login on a Raspberry Pi.</div>
               </label>
               <label className="block">
                 Password or API key
