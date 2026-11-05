@@ -4929,7 +4929,7 @@ dependencies = [
 
 [[package]]
 name = "threedevil"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "digest_auth",
  "dirs 6.0.0",
