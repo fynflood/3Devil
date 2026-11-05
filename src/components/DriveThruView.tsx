@@ -1,53 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { api, extOf, formatBytes } from "../api";
-import { describeScan, type Store } from "../store";
-import type { DriveThruLibrary, DriveThruProduct, Project } from "../types";
+import { extOf, formatBytes } from "../api";
+import { fileTime, productUrl, type DownloadProgress, type DriveThru } from "../driveThru";
+import type { Store } from "../store";
+import type { DriveThruProduct, Project } from "../types";
 
 interface Props {
   store: Store;
-  notify: (msg: string, kind?: "info" | "error") => void;
+  driveThru: DriveThru;
   onOpenProject: (id: string) => void;
   onOpenSettings: () => void;
 }
 
-interface Progress {
-  orderProductId: number;
-  file: string;
-  fileIndex: number;
-  fileCount: number;
-  received: number;
-  total: number | null;
-}
-
 const PRINT_EXTS = new Set(["zip", "stl", "3mf", "obj", "7z", "rar"]);
-const productUrl = (p: { productId: string }) => `https://www.drivethrurpg.com/en/product/${p.productId}`;
-const time = (iso?: string | null) => (iso ? Date.parse(iso) || 0 : 0);
-
-/** Library as last seen, kept for the session so switching views doesn't reload it. */
-let cache: { key: string; library: DriveThruLibrary } | null = null;
-/** Keys whose library has been refreshed from DriveThruRPG this session. */
-const refreshed = new Set<string>();
-/** A fetch in progress, shared if the view is left and reopened meanwhile. */
-let pending: { key: string; promise: Promise<DriveThruLibrary> } | null = null;
-
-function fetchLibrary(key: string): Promise<DriveThruLibrary> {
-  if (pending?.key !== key) {
-    const promise = api
-      .drivethruLibrary(key)
-      .then((library) => {
-        cache = { key, library };
-        refreshed.add(key);
-        return library;
-      })
-      .finally(() => {
-        if (pending?.promise === promise) pending = null;
-      });
-    pending = { key, promise };
-  }
-  return pending.promise;
-}
 
 function ago(ms: number): string {
   const min = Math.round((Date.now() - ms) / 60000);
@@ -58,62 +23,26 @@ function ago(ms: number): string {
   return new Date(ms).toLocaleDateString();
 }
 
-export function DriveThruView({ store, notify, onOpenProject, onOpenSettings }: Props) {
-  const settings = store.state!.settings.driveThru;
-  const key = settings?.apiKey ?? "";
-  const [library, setLibrary] = useState<DriveThruLibrary | null>(cache?.key === key ? cache.library : null);
+/** What a download in progress is up to. */
+export function DownloadStatus({ progress }: { progress: DownloadProgress | null }) {
+  if (!progress) return <span className="muted small">Checking files…</span>;
+  return (
+    <>
+      <div className="progress thin"><div style={{ width: `${progress.total ? (progress.received / progress.total) * 100 : 0}%` }} /></div>
+      <span className="muted small">
+        {progress.file} ({progress.fileIndex + 1}/{progress.fileCount}) · {formatBytes(progress.received)}
+        {progress.total ? ` of ${formatBytes(progress.total)}` : ""}
+      </span>
+    </>
+  );
+}
+
+export function DriveThruView({ store, driveThru, onOpenProject, onOpenSettings }: Props) {
+  const { key, library, loading, loaded, error, busy, progress, updates, matches, refresh } = driveThru;
   const products = library?.products ?? null;
-  const [loading, setLoading] = useState(false);
-  /** Products fetched so far by the refresh in progress. */
-  const [loaded, setLoaded] = useState(0);
-  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [printOnly, setPrintOnly] = useState(true);
-  const [busy, setBusy] = useState<number | null>(null);
-  const [progress, setProgress] = useState<Progress | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    setLoaded(0);
-    try {
-      setLibrary(await fetchLibrary(key));
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Show the saved copy straight away, then refresh it once per session.
-  useEffect(() => {
-    if (!key) return;
-    let cancelled = false;
-    (async () => {
-      if (cache?.key !== key) {
-        const saved = await api.drivethruCachedLibrary(key).catch(() => null);
-        if (cancelled) return;
-        if (saved) {
-          cache = { key, library: saved };
-          setLibrary(saved);
-        }
-      }
-      if (!refreshed.has(key)) load();
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  useEffect(() => {
-    const un = listen<Progress>("drivethru-progress", (e) => setProgress(e.payload));
-    const unLib = listen<number>("drivethru-library-progress", (e) => setLoaded(e.payload));
-    return () => {
-      un.then((f) => f());
-      unLib.then((f) => f());
-    };
-  }, []);
+  const [updatesOnly, setUpdatesOnly] = useState(false);
 
   const linked = useMemo(() => {
     const m = new Map<number, Project>();
@@ -121,64 +50,31 @@ export function DriveThruView({ store, notify, onOpenProject, onOpenSettings }: 
     return m;
   }, [store.state]);
 
+  /** Projects that look like each product but aren't linked to it yet. */
+  const matched = useMemo(() => {
+    const m = new Map<number, Project>();
+    for (const p of store.state!.projects) {
+      const product = matches.get(p.id);
+      if (product) m.set(product.orderProductId, p);
+    }
+    return m;
+  }, [store.state, matches]);
+
+  const updatable = useMemo(() => new Set([...updates.values()].map((p) => p.orderProductId)), [updates]);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (products ?? [])
       .filter((p) => !printOnly || p.files.some((f) => PRINT_EXTS.has(extOf(f.filename))))
+      .filter((p) => !updatesOnly || !updatable.size || updatable.has(p.orderProductId))
       .filter((p) => !q || p.name.toLowerCase().includes(q) || (p.publisher?.name ?? "").toLowerCase().includes(q))
-      .sort((a, b) => time(b.fileLastModified) - time(a.fileLastModified));
-  }, [products, query, printOnly]);
+      .sort((a, b) => fileTime(b.fileLastModified) - fileTime(a.fileLastModified));
+  }, [products, query, printOnly, updatesOnly, updatable]);
 
-  /** Downloads (or refreshes) a product's files and returns the folder. */
-  const download = async (p: DriveThruProduct) => {
-    if (!settings?.libraryPath) throw new Error("Choose a download folder for DriveThruRPG in Settings first.");
-    const dir = await api.drivethruProductDir(settings.libraryPath, p.publisher?.name ?? "", p.name);
-    const r = await api.drivethruDownload({
-      key,
-      orderProductId: p.orderProductId,
-      files: p.files,
-      destDir: dir,
-      remoteModifiedMs: time(p.fileLastModified) || null,
-    });
-    return { dir, ...r };
+  const create = async (p: DriveThruProduct) => {
+    const id = await driveThru.create(p);
+    if (id) onOpenProject(id);
   };
-
-  const run = async (p: DriveThruProduct, fn: () => Promise<void>) => {
-    setBusy(p.orderProductId);
-    setProgress(null);
-    try {
-      await fn();
-    } catch (e) {
-      notify(String(e), "error");
-    } finally {
-      setBusy(null);
-      setProgress(null);
-    }
-  };
-
-  const create = (p: DriveThruProduct) =>
-    run(p, async () => {
-      const { dir, downloaded, skipped } = await download(p);
-      const id = store.actions.createProject({
-        name: p.name,
-        description: p.publisher?.name ?? "",
-        sourceUrl: productUrl(p),
-        driveThru: { productId: p.productId, orderProductId: p.orderProductId, fileLastModified: p.fileLastModified ?? undefined },
-      });
-      const scan = await store.actions.addFolder(id, dir);
-      notify(`Downloaded ${downloaded.length} file(s)${skipped.length ? `, ${skipped.length} already up to date` : ""} · ${describeScan(scan)}`);
-      onOpenProject(id);
-    });
-
-  const update = (p: DriveThruProduct, project: Project) =>
-    run(p, async () => {
-      const { downloaded } = await download(p);
-      store.actions.updateProject(project.id, {
-        driveThru: { productId: p.productId, orderProductId: p.orderProductId, fileLastModified: p.fileLastModified ?? undefined },
-      });
-      const scan = await store.actions.rescan(project.id);
-      notify(`${p.name}: ${downloaded.length} updated file(s) · ${describeScan(scan)}`);
-    });
 
   if (!key) {
     return (
@@ -199,12 +95,18 @@ export function DriveThruView({ store, notify, onOpenProject, onOpenSettings }: 
       <header className="drivethru-head">
         <h2>DriveThruRPG library</h2>
         <div className="spacer" />
+        {updatable.size > 0 && (
+          <label className="inline small">
+            <input type="checkbox" checked={updatesOnly} onChange={(e) => setUpdatesOnly(e.target.checked)} />
+            Only updates ({updatable.size})
+          </label>
+        )}
         <label className="inline small">
           <input type="checkbox" checked={printOnly} onChange={(e) => setPrintOnly(e.target.checked)} />
           Only products with 3D files or ZIPs
         </label>
         <input className="search" placeholder="Search library…" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button onClick={load} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
+        <button onClick={refresh} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
       </header>
       {error && !products && <div className="empty"><p className="error-text">{error}</p><button onClick={onOpenSettings}>Check settings</button></div>}
       {loading && !products && (
@@ -222,9 +124,8 @@ export function DriveThruView({ store, notify, onOpenProject, onOpenSettings }: 
           {error && <p className="error-text small">Couldn't refresh the library: {error}</p>}
           {visible.map((p) => {
             const project = linked.get(p.orderProductId);
-            const hasUpdate = !!project && time(p.fileLastModified) > time(project.driveThru?.fileLastModified);
+            const match = matched.get(p.orderProductId);
             const isBusy = busy === p.orderProductId;
-            const prog = isBusy && progress?.orderProductId === p.orderProductId ? progress : null;
             return (
               <div key={p.orderProductId} className="drivethru-row">
                 <div className="drivethru-info">
@@ -233,26 +134,26 @@ export function DriveThruView({ store, notify, onOpenProject, onOpenSettings }: 
                     {p.publisher?.name ?? "Unknown publisher"} · {p.files.length} file{p.files.length === 1 ? "" : "s"}
                     {p.fileLastModified ? ` · updated ${new Date(p.fileLastModified).toLocaleDateString()}` : ""}
                   </span>
-                  {prog && (
-                    <>
-                      <div className="progress thin"><div style={{ width: `${prog.total ? (prog.received / prog.total) * 100 : 0}%` }} /></div>
-                      <span className="muted small">
-                        {prog.file} ({prog.fileIndex + 1}/{prog.fileCount}) · {formatBytes(prog.received)}
-                        {prog.total ? ` of ${formatBytes(prog.total)}` : ""}
-                      </span>
-                    </>
-                  )}
-                  {isBusy && !prog && <span className="muted small">Preparing download…</span>}
+                  {isBusy && <DownloadStatus progress={progress?.orderProductId === p.orderProductId ? progress : null} />}
                 </div>
                 {project ? (
                   <>
-                    {hasUpdate && <button onClick={() => update(p, project)} disabled={busy !== null}>Download update</button>}
+                    {updatable.has(p.orderProductId) && (
+                      <button className="primary" onClick={() => driveThru.update(p, project)} disabled={busy !== null}>Download update</button>
+                    )}
                     <button onClick={() => onOpenProject(project.id)}>Open project</button>
                   </>
                 ) : (
-                  <button className="primary" onClick={() => create(p)} disabled={busy !== null}>
-                    {isBusy ? "Downloading…" : "Create project"}
-                  </button>
+                  <>
+                    {match && (
+                      <button className="primary" title={`Get updates for your project “${match.name}”`} onClick={() => driveThru.link(p, match)}>
+                        Link to my project
+                      </button>
+                    )}
+                    <button className={match ? "" : "primary"} onClick={() => create(p)} disabled={busy !== null}>
+                      {isBusy ? "Downloading…" : "Create project"}
+                    </button>
+                  </>
                 )}
               </div>
             );

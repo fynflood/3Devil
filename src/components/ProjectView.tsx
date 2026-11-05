@@ -3,6 +3,7 @@ import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api, formatDuration, formatLongDuration } from "../api";
 import { activeParts, describeScan, partStatus, projectProgress, queuedCounts, timeLeft, type Store } from "../store";
+import { findRevisions } from "../revisions";
 import { sendToSlicer } from "../slicers";
 import { dragFiles, dragImage } from "../dragOut";
 import { SLICER_NAMES, type Part, type PartStatus, type Project, type SlicerId } from "../types";
@@ -12,10 +13,13 @@ import { FolderButton, folderOf } from "./FolderButton";
 import { PartDetail } from "./PartDetail";
 import { JobsView } from "./JobsView";
 import { locateFolder, useMissingFolders } from "./SyncSettings";
+import { DownloadStatus } from "./DriveThruView";
+import type { DriveThru } from "../driveThru";
 
 interface Props {
   store: Store;
   project: Project;
+  driveThru: DriveThru;
   notify: (msg: string, kind?: "info" | "error") => void;
   /** Ask the view to open a part (from global search or a printer card). */
   focusRequest?: { partId: string; n: number } | null;
@@ -23,10 +27,10 @@ interface Props {
   onReview: (jobId: string) => void;
 }
 
-type Filter = "all" | PartStatus;
+type Filter = "all" | PartStatus | "updated";
 const MODEL_FILTERS = [{ name: "3D models", extensions: ["stl", "3mf", "obj", "STL", "3MF", "OBJ"] }];
 
-export function ProjectView({ store, project, notify, focusRequest, onReview }: Props) {
+export function ProjectView({ store, project, driveThru, notify, focusRequest, onReview }: Props) {
   const { actions, state } = store;
   const [tab, setTab] = useState<"parts" | "jobs">("parts");
   const [filter, setFilter] = useState<Filter>("all");
@@ -59,13 +63,24 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
   const collapsed = useMemo(() => new Set(project.collapsedGroups), [project.collapsedGroups]);
   const active = useMemo(() => activeParts(project), [project]);
 
+  const revisions = useMemo(() => findRevisions(project.parts), [project.parts]);
+  /** Older parts with the new part that looks like their newer version. */
+  const newerVersions = useMemo(() => {
+    const m = new Map<string, Part>();
+    for (const [id, [older]] of revisions) {
+      const part = project.parts.find((p) => p.id === id);
+      if (part && !m.has(older.id)) m.set(older.id, part);
+    }
+    return m;
+  }, [revisions, project.parts]);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return active.filter((p) => {
-      if (filter !== "all" && partStatus(p, queued.get(p.id) ?? 0) !== filter) return false;
+      if (filter === "updated" ? !p.update && !newerVersions.has(p.id) : filter !== "all" && partStatus(p, queued.get(p.id) ?? 0) !== filter) return false;
       return !q || p.name.toLowerCase().includes(q) || p.group.toLowerCase().includes(q);
     });
-  }, [active, filter, query, queued]);
+  }, [active, filter, query, queued, newerVersions]);
 
   const groups = useMemo(() => {
     const m = new Map<string, Part[]>();
@@ -80,10 +95,17 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
   const ordered = useMemo(() => groups.flatMap(([, parts]) => parts), [groups]);
 
   const counts = useMemo(() => {
-    const c = { all: active.length, todo: 0, queued: 0, done: 0 };
-    for (const p of active) c[partStatus(p, queued.get(p.id) ?? 0)]++;
+    const c = { all: active.length, todo: 0, queued: 0, done: 0, updated: 0 };
+    for (const p of active) {
+      c[partStatus(p, queued.get(p.id) ?? 0)]++;
+      if (p.update || newerVersions.has(p.id)) c.updated++;
+    }
     return c;
-  }, [active, queued]);
+  }, [active, queued, newerVersions]);
+
+  useEffect(() => {
+    if (filter === "updated" && !counts.updated) setFilter("all");
+  }, [filter, counts.updated]);
 
   const hiddenFolders = useMemo(
     () => new Set(project.parts.filter((p) => hidden.has(p.group)).map((p) => p.group)).size,
@@ -193,6 +215,8 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
 
   const sel = [...selected].filter((id) => project.parts.some((p) => p.id === id));
   const focus = project.parts.find((p) => p.id === focusId) ?? null;
+  const update = driveThru.updates.get(project.id);
+  const match = driveThru.matches.get(project.id);
   const defaultSlicer = state!.settings.defaultSlicer;
   const otherSlicer: SlicerId = defaultSlicer === "bambu" ? "prusa" : "bambu";
 
@@ -249,6 +273,39 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
         {/^https?:\/\//.test(project.sourceUrl) && <button onClick={() => openUrl(project.sourceUrl)}>↗</button>}
       </div>
 
+      {update && !missingFolders.length && (
+        <div className="banner">
+          <span>
+            {update.publisher?.name ?? "The publisher"} changed these files on {new Date(update.fileLastModified ?? 0).toLocaleDateString()}.
+            {driveThru.busy === update.orderProductId && <DownloadStatus progress={driveThru.progress} />}
+          </span>
+          <button className="primary" disabled={driveThru.busy !== null} onClick={() => driveThru.update(update, project)}>Download update</button>
+        </div>
+      )}
+      {newerVersions.size > 0 && (
+        <div className="banner">
+          <span>
+            {newerVersions.size === 1
+              ? `${[...newerVersions.values()][0].name} looks like a newer version of ${project.parts.find((p) => p.id === [...newerVersions.keys()][0])?.name}.`
+              : `${newerVersions.size} new parts look like newer versions of parts you already have.`}
+          </span>
+          <button
+            onClick={() => {
+              setFilter("updated");
+              setTab("parts");
+              if (newerVersions.size === 1) setFocusId([...newerVersions.values()][0].id);
+            }}
+          >
+            Review
+          </button>
+        </div>
+      )}
+      {match && (
+        <div className="banner">
+          <span>This looks like “{match.name}” from your DriveThruRPG library. Link it to get updates here.</span>
+          <button className="primary" onClick={() => driveThru.link(match, project)}>Link</button>
+        </div>
+      )}
       {missingFolders.map((f) => (
         <div key={f} className="banner">
           <span>
@@ -274,11 +331,25 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
           ) : (
             <>
               <div className="filters">
-                {(["all", "todo", "queued", "done"] as Filter[]).map((f) => (
+                {(["all", "todo", "queued", "done", ...(counts.updated ? ["updated"] : [])] as Filter[]).map((f) => (
                   <button key={f} className={`chip${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>
-                    {{ all: "All", todo: "To print", queued: "Queued", done: "Done" }[f]} <span className="muted">{counts[f]}</span>
+                    {{ all: "All", todo: "To print", queued: "Queued", done: "Done", updated: "Updated" }[f]} <span className="muted">{counts[f]}</span>
                   </button>
                 ))}
+                {filter === "updated" && (
+                  <>
+                    {newerVersions.size > 0 && (
+                      <button
+                        className="link"
+                        title="Each new part takes over from the older part it looks like"
+                        onClick={() => newerVersions.forEach((part, oldId) => actions.replacePart(project.id, oldId, part.id))}
+                      >
+                        Use all newer versions
+                      </button>
+                    )}
+                    <button className="link" onClick={() => actions.markUpdatesSeen(project.id, active.map((p) => p.id))}>Mark all as seen</button>
+                  </>
+                )}
                 <input className="search" placeholder="Search parts…" value={query} onChange={(e) => setQuery(e.target.value)} />
                 <button className="link" onClick={() => setSelected(new Set(visible.map((p) => p.id)))}>Select all</button>
               </div>
@@ -349,6 +420,8 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
                             onAdjust={adjust}
                             onDragOut={dragOut}
                             onUnqueue={unqueue}
+                            isRevision={revisions.has(p.id)}
+                            hasNewerVersion={newerVersions.has(p.id)}
                           />
                         ))}
                       </div>
@@ -379,6 +452,9 @@ export function ProjectView({ store, project, notify, focusRequest, onReview }: 
             project={project}
             part={focus}
             queued={queued.get(focus.id) ?? 0}
+            replaceCandidates={revisions.get(focus.id) ?? []}
+            newerVersion={newerVersions.get(focus.id)}
+            onOpenPart={setFocusId}
             onSend={send}
             onClose={() => setFocusId(null)}
           />

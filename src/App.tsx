@@ -10,6 +10,7 @@ import { ReviewPrompt } from "./components/ReviewPrompt";
 import { DriveThruView } from "./components/DriveThruView";
 import { applyTheme, DEFAULT_THEME } from "./theme";
 import { useUpdater } from "./updater";
+import { useDriveThru } from "./driveThru";
 import { UpdateCard } from "./components/UpdateCard";
 import { useReorder } from "./useReorder";
 import { api } from "./api";
@@ -41,6 +42,7 @@ export default function App() {
   }, []);
 
   const statuses = usePrinters(store, notify);
+  const driveThru = useDriveThru(store, notify);
   const projectIds = useMemo(() => state?.projects.map((p) => p.id) ?? [], [state?.projects]);
   const reorder = useReorder(projectIds, actions.moveProject);
   // Not in development: an update would try to replace the dev build.
@@ -158,6 +160,7 @@ export default function App() {
                 >
                   <div className="project-item-row">
                     <span className="project-item-name">{p.name}</span>
+                    {driveThru.updates.has(p.id) && <span className="pill pill-active" title="The publisher has updated these files">Update</span>}
                     <button
                       className="icon-btn danger hover-only"
                       title="Delete project"
@@ -194,7 +197,9 @@ export default function App() {
           </div>
         )}
         <UpdateCard updater={updater} />
-        <button className={`wide${view === "drivethru" ? " active" : ""}`} onClick={() => setView("drivethru")}>DriveThruRPG library</button>
+        <button className={`wide${view === "drivethru" ? " active" : ""}`} onClick={() => setView("drivethru")}>
+          DriveThruRPG library{driveThru.updates.size ? ` · ${driveThru.updates.size} update${driveThru.updates.size === 1 ? "" : "s"}` : ""}
+        </button>
         <button className={`wide${view === "settings" ? " active" : ""}`} onClick={() => setView("settings")}>Settings</button>
       </nav>
 
@@ -204,7 +209,7 @@ export default function App() {
         ) : view === "drivethru" ? (
           <DriveThruView
             store={store}
-            notify={notify}
+            driveThru={driveThru}
             onOpenProject={(id) => { setView(id); setFocusRequest(null); }}
             onOpenSettings={() => setView("settings")}
           />
@@ -213,6 +218,7 @@ export default function App() {
             key={project.id}
             store={store}
             project={project}
+            driveThru={driveThru}
             notify={notify}
             focusRequest={focusRequest}
             onReview={(jobId) => setDeferred((d) => new Set([...d].filter((id) => id !== jobId)))}

@@ -54,6 +54,13 @@ export function quantityFromName(name: string): number {
   return n > 0 ? n : 1;
 }
 
+function removeFromQueue(project: Project, ids: Set<string>) {
+  for (const job of project.jobs) {
+    if (job.status === "queued") job.items = job.items.filter((it) => !ids.has(it.partId));
+  }
+  project.jobs = project.jobs.filter((j) => j.items.length);
+}
+
 export function queuedCounts(project: Project): Map<string, number> {
   const m = new Map<string, number>();
   for (const job of project.jobs) {
@@ -68,11 +75,10 @@ export function partStatus(part: Part, queued: number): PartStatus {
   return queued > 0 ? "queued" : "todo";
 }
 
-/** Parts in folders that are part of the build (not hidden). */
+/** Parts that are part of the build: not in a hidden folder, and not replaced. */
 export function activeParts(project: Project): Part[] {
-  if (!project.hiddenGroups?.length) return project.parts;
   const hidden = new Set(project.hiddenGroups);
-  return project.parts.filter((p) => !hidden.has(p.group));
+  return project.parts.filter((p) => !hidden.has(p.group) && !p.replacedBy);
 }
 
 export function projectProgress(project: Project) {
@@ -166,6 +172,10 @@ function partsFromFiles(folder: string, files: ModelFile[], existing: Set<string
 export interface ScanResult {
   added: number;
   missing: number;
+  /** Parts whose file an update changed. */
+  changed: number;
+  /** Parts whose file an update no longer has. */
+  removed: number;
   /** ZIPs unpacked during the scan. */
   extracted: string[];
   failed: string[];
@@ -174,6 +184,8 @@ export interface ScanResult {
 /** One-line summary of a scan for a toast. */
 export function describeScan(r: ScanResult): string {
   const parts = [`${r.added} new part${r.added === 1 ? "" : "s"}`];
+  if (r.changed) parts.push(`${r.changed} updated`);
+  if (r.removed) parts.push(`${r.removed} no longer in the update`);
   if (r.extracted.length) parts.push(`${r.extracted.length} ZIP${r.extracted.length === 1 ? "" : "s"} unpacked`);
   if (r.missing) parts.push(`${r.missing} missing`);
   if (r.failed.length) parts.push(`couldn't unpack: ${r.failed.map(basename).join(", ")}`);
@@ -316,7 +328,7 @@ export function useStore() {
         const have = new Set(p.parts.map((x) => x.path));
         p.parts.push(...parts.filter((x) => !have.has(x.path)));
       });
-      return { added: parts.length, missing: 0, ...archives };
+      return { added: parts.length, missing: 0, changed: 0, removed: 0, extracted: archives.extracted, failed: archives.failed };
     },
 
     async addFiles(projectId: string, paths: string[]) {
@@ -333,17 +345,26 @@ export function useStore() {
       });
     },
 
-    /** Re-scans every project folder for new files and flags parts whose file is gone. */
-    async rescan(projectId: string): Promise<ScanResult> {
+    /**
+     * Re-scans every project folder, unpacking ZIPs that are new or have been
+     * replaced by newer copies. Picks up new files, flags parts whose file is
+     * gone, and marks what an update did to each part. `changedFiles` lists
+     * files already known to have changed, such as loose downloads.
+     */
+    async rescan(projectId: string, changedFiles: string[] = []): Promise<ScanResult> {
       const project = latest.current?.projects.find((p) => p.id === projectId);
-      if (!project) return { added: 0, missing: 0, extracted: [], failed: [] };
+      if (!project) return { added: 0, missing: 0, changed: 0, removed: 0, extracted: [], failed: [] };
       const extracted: string[] = [];
       const failed: string[] = [];
+      const changedPaths = new Set(changedFiles);
+      const removedPaths = new Set<string>();
       const scans = await Promise.all(
         project.folders.map(async (f) => {
-          const r = await api.extractArchives(f).catch(() => ({ extracted: [], failed: [] }));
+          const r = await api.extractArchives(f).catch(() => ({ extracted: [], failed: [], changed: [], removed: [] }));
           extracted.push(...r.extracted);
           failed.push(...r.failed);
+          r.changed.forEach((p) => changedPaths.add(p));
+          r.removed.forEach((p) => removedPaths.add(p));
           return [f, await api.scanModels(f).catch(() => [])] as const;
         }),
       );
@@ -359,12 +380,78 @@ export function useStore() {
         parts.forEach((x) => have.add(x.path));
         newParts.push(...parts);
       }
+      // A file swapped by hand shows up by size; parts added as loose files have none yet.
+      const sizes = new Map(scans.flatMap(([, files]) => files.map((f) => [f.path, f.size] as const)));
+      const isChanged = (part: Part) => {
+        const size = sizes.get(part.path);
+        return changedPaths.has(part.path) || (!!part.size && size !== undefined && size !== part.size);
+      };
+      const changed = project.parts.filter(isChanged).length;
+      const removed = project.parts.filter((x) => removedPaths.has(x.path)).length;
+      const now = Date.now();
       withProject(projectId, (p) => {
         const existing = new Set(p.parts.map((x) => x.path));
-        p.parts.push(...newParts.filter((x) => !existing.has(x.path)));
-        for (const part of p.parts) if (!inGoneFolder(part.path)) part.missing = missing.has(part.path) || undefined;
+        p.parts.push(...newParts.filter((x) => !existing.has(x.path)).map((x): Part => ({ ...x, update: "new" })));
+        for (const part of p.parts) {
+          if (!inGoneFolder(part.path)) part.missing = missing.has(part.path) || undefined;
+          if (isChanged(part)) {
+            part.update = "changed";
+            part.updatedAt = now;
+          } else if (removedPaths.has(part.path)) {
+            part.update = "removed";
+          }
+          part.size = sizes.get(part.path) ?? part.size;
+        }
       });
-      return { added: newParts.length, missing: missing.size, extracted, failed };
+      return { added: newParts.length, missing: missing.size, changed, removed, extracted, failed };
+    },
+
+    /**
+     * Makes a new part take over from an older one, which leaves the build
+     * but keeps its counts in case this is undone. Copies printed from the old
+     * file aren't carried over: they're what an update usually fixes.
+     */
+    replacePart(projectId: string, oldId: string, newId: string) {
+      withProject(projectId, (p) => {
+        const old = p.parts.find((x) => x.id === oldId);
+        const part = p.parts.find((x) => x.id === newId);
+        if (!old || !part || old.replacedBy) return;
+        old.replacedBy = newId;
+        old.update = undefined;
+        part.replaces = oldId;
+        part.update = undefined;
+        part.required = old.required;
+        part.material ||= old.material;
+        part.color ||= old.color;
+        part.notes ||= old.notes;
+        removeFromQueue(p, new Set([oldId]));
+      });
+    },
+    undoReplace(projectId: string, newId: string) {
+      withProject(projectId, (p) => {
+        const part = p.parts.find((x) => x.id === newId);
+        const old = p.parts.find((x) => x.id === part?.replaces);
+        if (!part) return;
+        part.replaces = undefined;
+        part.update = "new";
+        part.notRevision = true;
+        part.required = quantityFromName(part.name);
+        if (old) old.replacedBy = undefined;
+      });
+    },
+    setNotRevision(projectId: string, partId: string) {
+      withProject(projectId, (p) => {
+        const part = p.parts.find((x) => x.id === partId);
+        if (part) part.notRevision = true;
+      });
+    },
+
+    /** Clears the update marks on the given parts, or on the whole project. */
+    markUpdatesSeen(projectId: string, partIds?: string[]) {
+      const ids = partIds && new Set(partIds);
+      withProject(projectId, (p) => {
+        for (const part of p.parts) if (!ids || ids.has(part.id)) part.update = undefined;
+      });
     },
 
     setGroupsHidden(projectId: string, groups: string[], hidden: boolean) {
@@ -396,6 +483,10 @@ export function useStore() {
       const ids = new Set(partIds);
       withProject(projectId, (p) => {
         p.parts = p.parts.filter((x) => !ids.has(x.id));
+        for (const part of p.parts) {
+          if (ids.has(part.replacedBy ?? "")) part.replacedBy = undefined;
+          if (ids.has(part.replaces ?? "")) part.replaces = undefined;
+        }
         for (const job of p.jobs) job.items = job.items.filter((it) => !ids.has(it.partId));
         p.jobs = p.jobs.filter((j) => j.items.length > 0);
       });
@@ -508,13 +599,7 @@ export function useStore() {
     },
     /** Takes parts out of every queued job; jobs left empty are deleted. */
     unqueueParts(projectId: string, partIds: string[]) {
-      const ids = new Set(partIds);
-      withProject(projectId, (p) => {
-        for (const job of p.jobs) {
-          if (job.status === "queued") job.items = job.items.filter((it) => !ids.has(it.partId));
-        }
-        p.jobs = p.jobs.filter((j) => j.items.length);
-      });
+      withProject(projectId, (p) => removeFromQueue(p, new Set(partIds)));
     },
     deleteJob(projectId: string, jobId: string) {
       withProject(projectId, (p) => {

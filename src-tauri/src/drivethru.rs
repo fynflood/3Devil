@@ -6,6 +6,7 @@ use futures_util::{future::join_all, StreamExt};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -35,9 +36,29 @@ pub struct Publisher {
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct Checksum {
+    checksum: Option<String>,
+    checksum_date: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct DownloadItem {
     index: i64,
     filename: String,
+    #[serde(default, deserialize_with = "null_as_empty")]
+    checksums: Vec<Checksum>,
+}
+
+impl DownloadItem {
+    /// MD5 of the file as it is on the store now, if the store gave one.
+    fn checksum(&self) -> Option<&str> {
+        self.checksums.iter().max_by_key(|c| c.checksum_date.as_deref())?.checksum.as_deref()
+    }
+}
+
+fn null_as_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Checksum>, D::Error> {
+    Ok(Option::deserialize(d)?.unwrap_or_default())
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -188,7 +209,7 @@ async fn library_page(state: &DriveThru, http: &Client, key: &str, page: usize) 
         key,
         "order_products",
         &[
-            ("getChecksum", "0".into()),
+            ("getChecksum", "1".into()),
             ("getFilters", "0".into()),
             ("page", page.to_string()),
             ("pageSize", "100".into()),
@@ -261,10 +282,32 @@ struct Progress<'a> {
 pub struct DownloadReport {
     downloaded: Vec<String>,
     skipped: Vec<String>,
+    /// Full paths of files replaced with different contents.
+    changed: Vec<String>,
 }
 
-fn up_to_date(path: &Path, remote_modified_ms: Option<i64>) -> bool {
+fn md5_of(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hash = md5::Context::new();
+    let mut buf = vec![0; 1 << 16];
+    loop {
+        match file.read(&mut buf).ok()? {
+            0 => return Some(format!("{:x}", hash.finalize())),
+            n => hash.consume(&buf[..n]),
+        }
+    }
+}
+
+/// Whether `path` already is this file: by the store's checksum when it gave
+/// one, or else by being at least as new as the product's last update. The
+/// update time covers the whole product, so that can't single out one file.
+async fn up_to_date(path: &Path, item: &DownloadItem, remote_modified_ms: Option<i64>) -> bool {
     let Ok(meta) = std::fs::metadata(path) else { return false };
+    if let Some(expected) = item.checksum() {
+        let path = path.to_path_buf();
+        let hash = tauri::async_runtime::spawn_blocking(move || md5_of(&path)).await;
+        return hash.ok().flatten().is_some_and(|h| h.eq_ignore_ascii_case(expected));
+    }
     let Some(remote) = remote_modified_ms else { return true };
     let local_ms = meta
         .modified()
@@ -276,8 +319,8 @@ fn up_to_date(path: &Path, remote_modified_ms: Option<i64>) -> bool {
 }
 
 /// Downloads a product's files into `dest_dir`, skipping files already on
-/// disk that are at least as new as the product's last update. Progress is
-/// reported through `drivethru-progress` events.
+/// disk that are up to date. Progress is reported through `drivethru-progress`
+/// events.
 #[tauri::command]
 pub async fn drivethru_download(
     app: AppHandle,
@@ -297,7 +340,7 @@ pub async fn drivethru_download(
     for (i, item) in files.iter().enumerate() {
         let name = safe_name(Path::new(&item.filename).file_name().map(|s| s.to_string_lossy()).as_deref().unwrap_or("file"));
         let target = dest.join(&name);
-        if up_to_date(&target, remote_modified_ms) {
+        if up_to_date(&target, item, remote_modified_ms).await {
             report.skipped.push(name);
             continue;
         }
@@ -339,7 +382,11 @@ pub async fn drivethru_download(
         }
         file.flush().await.map_err(|e| e.to_string())?;
         drop(file);
+        let replaced = target.exists() && !crate::same_contents(&part, &target).unwrap_or(false);
         tokio::fs::rename(&part, &target).await.map_err(|e| e.to_string())?;
+        if replaced {
+            report.changed.push(target.to_string_lossy().to_string());
+        }
         report.downloaded.push(name);
     }
     Ok(report)
@@ -365,6 +412,27 @@ mod tests {
         .unwrap();
         assert_eq!(p.product_id, "12345");
         assert_eq!(p.files[0].filename, "a.zip");
+    }
+
+    #[test]
+    fn newest_checksum_wins() {
+        let item: DownloadItem = serde_json::from_str(
+            r#"{"index": 0, "filename": "a.zip", "checksums": [
+                {"checksum": "old", "checksumDate": "2026-09-30T10:00:00+00:00"},
+                {"checksum": "new", "checksumDate": "2026-10-27T10:00:00+00:00"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(item.checksum(), Some("new"));
+        let bare: DownloadItem = serde_json::from_str(r#"{"index": 0, "filename": "a.zip", "checksums": null}"#).unwrap();
+        assert_eq!(bare.checksum(), None);
+    }
+
+    #[test]
+    fn md5_matches_known_value() {
+        let path = std::env::temp_dir().join(format!("threedevil-md5-{}", std::process::id()));
+        std::fs::write(&path, "hello").unwrap();
+        assert_eq!(md5_of(&path).as_deref(), Some("5d41402abc4b2a76b9719d911017c592"));
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

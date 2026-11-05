@@ -1,8 +1,10 @@
 use serde::Serialize;
 use std::ffi::OsString;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::SystemTime;
 
 mod drivethru;
 mod preview;
@@ -11,6 +13,8 @@ mod prusa;
 mod storage;
 
 const MODEL_EXTS: &[&str] = &["stl", "3mf", "obj"];
+/// Left in an unpacked folder; its timestamp says when the archive was unpacked.
+const UNPACKED_MARKER: &str = ".3devil-unpacked";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -131,13 +135,87 @@ fn archive_target(zip_path: &Path, archive: &mut zip::ZipArchive<fs::File>) -> O
     }
 }
 
-/// Extracts one archive next to itself unless its output already exists.
-/// Returns the folder that now holds its contents, or None if skipped.
-fn extract_beside(zip_path: &Path) -> Result<Option<PathBuf>, String> {
+fn modified(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).ok()?.modified().ok()
+}
+
+fn newest_file(dir: &Path) -> Option<SystemTime> {
+    fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter_map(|e| if e.path().is_dir() { newest_file(&e.path()) } else { modified(&e.path()) })
+        .max()
+}
+
+/// When `dir` was last unpacked. Folders from before the marker existed go by
+/// their newest file, as unpacking doesn't keep the archive's timestamps.
+fn unpacked_at(dir: &Path) -> Option<SystemTime> {
+    modified(&dir.join(UNPACKED_MARKER)).or_else(|| newest_file(dir))
+}
+
+pub(crate) fn same_contents(a: &Path, b: &Path) -> std::io::Result<bool> {
+    if fs::metadata(a)?.len() != fs::metadata(b)?.len() {
+        return Ok(false);
+    }
+    let (mut a, mut b) = (fs::File::open(a)?, fs::File::open(b)?);
+    let (mut buf_a, mut buf_b) = (vec![0; 1 << 16], vec![0; 1 << 16]);
+    loop {
+        let n = a.read(&mut buf_a)?;
+        if n == 0 {
+            return Ok(true);
+        }
+        b.read_exact(&mut buf_b[..n])?;
+        if buf_a[..n] != buf_b[..n] {
+            return Ok(false);
+        }
+    }
+}
+
+/// Notes the files in `current` that a newly unpacked archive no longer has.
+fn note_removed(unpacked: &Path, current: &Path, report: &mut ExtractReport) {
+    let Ok(entries) = fs::read_dir(current) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let (fresh, ours) = (unpacked.join(&name), entry.path());
+        if ours.is_dir() {
+            note_removed(&fresh, &ours, report);
+        } else if !fresh.exists() {
+            report.removed.push(ours.to_string_lossy().to_string());
+        }
+    }
+}
+
+/// Moves a newly unpacked archive over the previous one, noting which files
+/// really differ: a re-zipped pack usually changes only a few. Files the
+/// archive no longer has are left in place.
+fn apply_update(unpacked: &Path, current: &Path, report: &mut ExtractReport) -> std::io::Result<()> {
+    fs::create_dir_all(current)?;
+    for entry in fs::read_dir(unpacked)?.flatten() {
+        let (fresh, ours) = (entry.path(), current.join(entry.file_name()));
+        if fresh.is_dir() {
+            apply_update(&fresh, &ours, report)?;
+        } else if !ours.exists() || entry.file_name() == UNPACKED_MARKER {
+            fs::rename(&fresh, &ours)?;
+        } else if !same_contents(&fresh, &ours)? {
+            fs::rename(&fresh, &ours)?;
+            report.changed.push(ours.to_string_lossy().to_string());
+        }
+    }
+    Ok(())
+}
+
+/// Extracts one archive next to itself, unless it already has been and hasn't
+/// been replaced by a newer copy since. A newer copy is merged into the folder
+/// the old one made. Returns that folder, or None if skipped.
+fn extract_beside(zip_path: &Path, report: &mut ExtractReport) -> Result<Option<PathBuf>, String> {
     let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     let (dest, result) = archive_target(zip_path, &mut archive).ok_or("Invalid archive path")?;
-    if result.exists() {
+    let is_update = result.exists();
+    if is_update && modified(zip_path) <= unpacked_at(&result) {
         return Ok(None);
     }
     // Extract into a scratch folder first so an interrupted extraction is
@@ -155,16 +233,20 @@ fn extract_beside(zip_path: &Path) -> Result<Option<PathBuf>, String> {
         return Err(e.to_string());
     }
     let _ = fs::remove_dir_all(tmp.join("__MACOSX"));
-    let moved = if dest == result {
-        fs::rename(&tmp, &result)
+    let unpacked = if dest == result { tmp.clone() } else { tmp.join(result.file_name().unwrap_or_default()) };
+    let moved = if is_update {
+        // Unpack archives inside it too, so their files get compared as well.
+        let mut nested = ExtractReport::default();
+        extract_all(&unpacked, &mut nested);
+        report.failed.extend(nested.failed);
+        note_removed(&unpacked, &result, report);
+        apply_update(&unpacked, &result, report)
     } else {
-        let top = result.file_name().unwrap_or_default();
-        fs::rename(tmp.join(top), &result).and_then(|_| fs::remove_dir_all(&tmp))
+        fs::rename(&unpacked, &result)
     };
-    if let Err(e) = moved {
-        let _ = fs::remove_dir_all(&tmp);
-        return Err(e.to_string());
-    }
+    let _ = fs::remove_dir_all(&tmp);
+    moved.map_err(|e| e.to_string())?;
+    let _ = fs::write(result.join(UNPACKED_MARKER), "");
     Ok(Some(result))
 }
 
@@ -174,13 +256,17 @@ struct ExtractReport {
     extracted: Vec<String>,
     /// Archives that could not be unpacked, with the reason.
     failed: Vec<String>,
+    /// Files a newer copy of an archive replaced with different contents.
+    changed: Vec<String>,
+    /// Files a newer copy of an archive no longer has; still on disk.
+    removed: Vec<String>,
 }
 
 fn extract_all(dir: &Path, report: &mut ExtractReport) {
     let mut zips = Vec::new();
     collect_zips(dir, &mut zips);
     for zip_path in zips {
-        match extract_beside(&zip_path) {
+        match extract_beside(&zip_path, report) {
             Ok(Some(out)) => {
                 report.extracted.push(zip_path.to_string_lossy().to_string());
                 // Archives often contain further archives.
@@ -196,8 +282,8 @@ fn extract_all(dir: &Path, report: &mut ExtractReport) {
     }
 }
 
-/// Unpacks every ZIP under `dir` (recursively) that hasn't been unpacked yet.
-/// The archives themselves are left in place.
+/// Unpacks every ZIP under `dir` (recursively) that hasn't been unpacked yet,
+/// or is newer than when it was. The archives themselves are left in place.
 #[tauri::command]
 async fn extract_archives(dir: String) -> ExtractReport {
     let mut report = ExtractReport::default();
@@ -462,6 +548,90 @@ mod tests {
         let got: Vec<_> = found.iter().map(|f| (f.group.as_str(), f.name.as_str())).collect();
         assert_eq!(got, vec![("", "root"), ("Walls", "plate"), ("Walls/Big", "wall_x4")]);
         fs::remove_dir_all(d).unwrap();
+    }
+
+    /// Writes an archive dated `secs` from now, as a re-download would be.
+    fn write_zip(path: &Path, secs: i64, files: &[(&str, &[u8])]) {
+        fs::write(path, zip_bytes(files)).unwrap();
+        let now = SystemTime::now();
+        let shift = std::time::Duration::from_secs(secs.unsigned_abs());
+        let at = if secs < 0 { now - shift } else { now + shift };
+        fs::File::options().write(true).open(path).unwrap().set_modified(at).unwrap();
+    }
+
+    fn unpack(dir: &Path) -> ExtractReport {
+        let mut report = ExtractReport::default();
+        extract_all(dir, &mut report);
+        report
+    }
+
+    #[test]
+    fn newer_archive_is_merged_and_differences_reported() {
+        let d = tmpdir("update");
+        let zip = d.join("Ground_Pack.zip");
+        let old: &[(&str, &[u8])] = &[("Ground/same.stl", b"same"), ("Ground/fixed.stl", b"aaaa"), ("Ground/dropped.stl", b"old")];
+        write_zip(&zip, 0, old);
+        assert_eq!(unpack(&d).extracted.len(), 1);
+
+        // The fix keeps the file's size, as moving a wall keeps its triangle count.
+        write_zip(&zip, 5, &[("Ground/same.stl", b"same"), ("Ground/fixed.stl", b"bbbb"), ("Ground/added.stl", b"new")]);
+        let r = unpack(&d);
+        let ground = d.join("Ground");
+        assert_eq!(r.extracted.len(), 1);
+        assert_eq!(r.changed, [ground.join("fixed.stl").to_string_lossy().to_string()]);
+        assert_eq!(r.removed, [ground.join("dropped.stl").to_string_lossy().to_string()]);
+        assert_eq!(fs::read(ground.join("fixed.stl")).unwrap(), b"bbbb");
+        assert!(ground.join("added.stl").is_file());
+        assert!(ground.join("dropped.stl").is_file(), "files the update dropped stay on disk");
+        assert!(!d.join(".3devil-extract-Ground_Pack.zip").exists());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn archive_is_only_merged_once() {
+        let d = tmpdir("update-once");
+        let zip = d.join("Ground_Pack.zip");
+        write_zip(&zip, -5, &[("Ground/a.stl", b"a")]);
+        unpack(&d);
+
+        // A re-zip that changes nothing gives no file a new date to compare against.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(&zip, zip_bytes(&[("Ground/a.stl", b"a")])).unwrap();
+        let first = unpack(&d);
+        assert_eq!(first.extracted.len(), 1);
+        assert!(first.changed.is_empty() && first.removed.is_empty());
+        assert!(unpack(&d).extracted.is_empty());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn folders_unpacked_before_markers_stay_as_they_are() {
+        let d = tmpdir("update-old");
+        write_zip(&d.join("Ground_Pack.zip"), -60, &[("Ground/a.stl", b"zip copy")]);
+        fs::create_dir_all(d.join("Ground")).unwrap();
+        fs::write(d.join("Ground/a.stl"), b"on disk").unwrap();
+        assert!(unpack(&d).extracted.is_empty());
+        assert_eq!(fs::read(d.join("Ground/a.stl")).unwrap(), b"on disk");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn updates_reach_files_in_nested_archives() {
+        let d = tmpdir("update-nested");
+        let zip = d.join("Castle_Pack.zip");
+        let inner = zip_bytes(&[("tower.stl", b"aaaa")]);
+        write_zip(&zip, 0, &[("Castle/wall.stl", b"wall"), ("Castle/Towers.zip", &inner)]);
+        unpack(&d);
+        assert!(d.join("Castle/Towers/tower.stl").is_file());
+
+        let inner = zip_bytes(&[("tower.stl", b"bbbb")]);
+        write_zip(&zip, 5, &[("Castle/wall.stl", b"wall"), ("Castle/Towers.zip", &inner)]);
+        let r = unpack(&d);
+        let tower = d.join("Castle/Towers/tower.stl");
+        assert!(r.changed.contains(&tower.to_string_lossy().to_string()), "{:?}", r.changed);
+        assert!(r.removed.is_empty(), "{:?}", r.removed);
+        assert_eq!(fs::read(tower).unwrap(), b"bbbb");
+        fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]

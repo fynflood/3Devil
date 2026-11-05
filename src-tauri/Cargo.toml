@@ -36,6 +36,7 @@ tauri-plugin-drag = "2.1.1"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 digest_auth = "0.3.1"
+md5 = "0.8.1"
 
 
 # Mesh simplification is a tight loop; keep it fast in `tauri dev` too.

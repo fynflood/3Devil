@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { useThumbnail } from "../viewer/thumbnails";
-import type { Part, PartStatus } from "../types";
+import { PART_UPDATE_LABELS, type Part, type PartStatus } from "../types";
 
 interface Props {
   part: Part;
@@ -15,6 +15,10 @@ interface Props {
   onDragOut: (id: string, thumb: HTMLImageElement | null) => void;
   /** Takes the part out of every queued print job. */
   onUnqueue: (id: string) => void;
+  /** This new part looks like a newer version of an existing one. */
+  isRevision: boolean;
+  /** An existing part with what looks like a newer version. */
+  hasNewerVersion: boolean;
 }
 
 function useVisible<T extends Element>() {
@@ -31,11 +35,11 @@ function useVisible<T extends Element>() {
 }
 
 export const PartCard = memo(function PartCard({
-  part, status, queued, selected, focused, onToggle, onFocus, onAdjust, onDragOut, onUnqueue,
+  part, status, queued, selected, focused, onToggle, onFocus, onAdjust, onDragOut, onUnqueue, isRevision, hasNewerVersion,
 }: Props) {
   const [ref, visible] = useVisible<HTMLDivElement>();
   const imgRef = useRef<HTMLImageElement>(null);
-  const thumb = useThumbnail(part.path, part.size, visible && !part.missing);
+  const thumb = useThumbnail(part.path, part.size, visible && !part.missing, part.updatedAt);
 
   return (
     <div
@@ -86,6 +90,13 @@ export const PartCard = memo(function PartCard({
           </span>
         )}
         {status === "done" && <span className="badge done">✓</span>}
+        {hasNewerVersion ? (
+          <span className="update-tag outdated">Outdated</span>
+        ) : part.update && (
+          <span className={`update-tag ${part.update}`}>
+            {PART_UPDATE_LABELS[part.update]}{part.update === "changed" && part.printed > 0 ? " · old print" : ""}{isRevision ? " · revision" : ""}
+          </span>
+        )}
       </div>
       <div className="part-name" title={part.name}>{part.name}</div>
       <div className="part-count" onClick={(e) => e.stopPropagation()}>

@@ -5,6 +5,15 @@ export const SLICER_NAMES: Record<SlicerId, string> = {
   prusa: "PrusaSlicer",
 };
 
+/** What the last update of the publisher's files did to a part. */
+export type PartUpdate = "changed" | "new" | "removed";
+
+export const PART_UPDATE_LABELS: Record<PartUpdate, string> = {
+  changed: "Updated",
+  new: "New",
+  removed: "Not in update",
+};
+
 export interface Part {
   id: string;
   name: string;
@@ -26,6 +35,16 @@ export interface Part {
   printSeconds?: number;
   /** `printSeconds` is this part's share of a multi-part plate, not its own print. */
   printSecondsEstimated?: boolean;
+  /** Set until the user has seen what an update did to this part. */
+  update?: PartUpdate;
+  /** When the file last changed in an update; keeps previews current. */
+  updatedAt?: number;
+  /** The older part this one took over from. */
+  replaces?: string;
+  /** The newer part that took over from this one; it no longer counts in the build. */
+  replacedBy?: string;
+  /** The user said this new part isn't a newer version of anything. */
+  notRevision?: boolean;
   addedAt: number;
 }
 
@@ -149,13 +168,19 @@ export interface DriveThruSettings {
   libraryPath: string;
 }
 
+export interface DriveThruFile {
+  index: number;
+  filename: string;
+  checksums?: { checksum?: string | null; checksumDate?: string | null }[];
+}
+
 export interface DriveThruProduct {
   productId: string;
   orderProductId: number;
   name: string;
   publisher?: { name: string } | null;
   fileLastModified?: string | null;
-  files: { index: number; filename: string }[];
+  files: DriveThruFile[];
 }
 
 /** The library as last fetched; also saved on disk so it shows instantly. */

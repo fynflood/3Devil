@@ -10,11 +10,16 @@ interface Props {
   project: Project;
   part: Part;
   queued: number;
+  /** Older parts this new part may replace, best match first. */
+  replaceCandidates: Part[];
+  /** What looks like a newer version of this part. */
+  newerVersion?: Part;
+  onOpenPart: (id: string) => void;
   onSend: (ids: string[], slicer: SlicerId, recordJob: boolean) => void;
   onClose: () => void;
 }
 
-export function PartDetail({ store, project, part, queued, onSend, onClose }: Props) {
+export function PartDetail({ store, project, part, queued, replaceCandidates, newerVersion, onOpenPart, onSend, onClose }: Props) {
   const update = (patch: Partial<Part>) => store.actions.updatePart(project.id, part.id, patch);
   const jobs = project.jobs.filter((j) => j.items.some((it) => it.partId === part.id));
   const num = (v: string) => Math.max(0, parseInt(v, 10) || 0);
@@ -32,6 +37,24 @@ export function PartDetail({ store, project, part, queued, onSend, onClose }: Pr
       )}
 
       <div className="detail-body">
+        <RevisionNotes
+          store={store}
+          project={project}
+          part={part}
+          replaceCandidates={replaceCandidates}
+          newerVersion={newerVersion}
+          onOpenPart={onOpenPart}
+        />
+        {part.update && part.update !== "new" && !newerVersion && (
+          <p className="update-note">
+            <span>
+              {part.update === "changed"
+                ? `The publisher changed this file.${part.printed > 0 ? ` ${copies(part.printed)} the old version.` : ""}`
+                : "The publisher's latest files no longer include this part. It may have been replaced by another; your copy is still in its folder."}
+            </span>
+            <button className="link" onClick={() => store.actions.markUpdatesSeen(project.id, [part.id])}>Mark as seen</button>
+          </p>
+        )}
         <div className="stat-row">
           <label>
             Needed
@@ -111,6 +134,75 @@ export function PartDetail({ store, project, part, queued, onSend, onClose }: Pr
         </button>
       </div>
     </aside>
+  );
+}
+
+const copies = (n: number) => (n === 1 ? "The copy you printed is" : `The ${n} copies you printed are`);
+
+type RevisionProps = Pick<Props, "store" | "project" | "part" | "replaceCandidates" | "newerVersion" | "onOpenPart">;
+
+/** Where a part stands against other versions of it, and the choices that leaves. */
+function RevisionNotes({ store, project, part, replaceCandidates, newerVersion, onOpenPart }: RevisionProps) {
+  const { actions } = store;
+  const suggested = replaceCandidates[0];
+  const [choice, setChoice] = useState("");
+  useEffect(() => setChoice(suggested?.id ?? ""), [suggested?.id, part.id]);
+  const named = (id?: string) => project.parts.find((p) => p.id === id);
+  const replaced = named(part.replaces);
+  const successor = named(part.replacedBy);
+
+  if (successor) {
+    return (
+      <p className="update-note">
+        <span>Replaced by {successor.name}, so it no longer counts in this build.</span>
+        <button className="link" onClick={() => onOpenPart(successor.id)}>Show it</button>
+      </p>
+    );
+  }
+  if (replaced) {
+    return (
+      <p className="update-note">
+        <span>
+          Replaces {replaced.name}.
+          {replaced.printed > 0 ? ` ${replaced.printed === 1 ? "The copy you printed of it isn't" : `The ${replaced.printed} copies you printed of it aren't`} counted here.` : ""}
+        </span>
+        <button className="link" onClick={() => actions.undoReplace(project.id, part.id)}>Undo</button>
+      </p>
+    );
+  }
+  if (newerVersion) {
+    return (
+      <div className="update-note column">
+        <span>{newerVersion.name} looks like a newer version of this part.{part.printed > 0 ? ` ${copies(part.printed)} this older one.` : ""}</span>
+        <div className="btn-row">
+          <button className="primary" onClick={() => actions.replacePart(project.id, part.id, newerVersion.id)}>Use the newer version</button>
+          <button onClick={() => onOpenPart(newerVersion.id)}>Show it</button>
+          <button className="link" onClick={() => actions.setNotRevision(project.id, newerVersion.id)}>Not the same part</button>
+        </div>
+      </div>
+    );
+  }
+  if (part.update !== "new") return null;
+
+  const shortlist = new Set(replaceCandidates.map((p) => p.id));
+  const others = project.parts
+    .filter((p) => p.id !== part.id && !shortlist.has(p.id) && !p.replacedBy && p.update !== "new")
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  return (
+    <div className="update-note column">
+      <span>{suggested ? `This looks like a newer version of ${suggested.name}.` : "New in the publisher's latest files."}</span>
+      <div className="replace-row">
+        <select value={choice} aria-label="Part this one replaces" onChange={(e) => setChoice(e.target.value)}>
+          <option value="">Replaces…</option>
+          {[...replaceCandidates, ...others].map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <button disabled={!choice} className={suggested ? "primary" : ""} onClick={() => actions.replacePart(project.id, choice, part.id)}>Replace</button>
+      </div>
+      <div className="btn-row">
+        {suggested && <button className="link" onClick={() => actions.setNotRevision(project.id, part.id)}>Not the same part</button>}
+        <button className="link" onClick={() => actions.markUpdatesSeen(project.id, [part.id])}>Mark as seen</button>
+      </div>
+    </div>
   );
 }
 

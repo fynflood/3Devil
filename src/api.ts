@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { DriveThruLibrary, ModelFile } from "./types";
+import type { DriveThruFile, DriveThruLibrary, ModelFile } from "./types";
 
 export interface FoundPrinter {
   ip: string;
@@ -42,7 +42,7 @@ export const api = {
   missingFiles: (paths: string[]) => invoke<string[]>("missing_files", { paths }),
   extractZip: (zipPath: string) => invoke<string>("extract_zip", { zipPath }),
   extractArchives: (dir: string) =>
-    invoke<{ extracted: string[]; failed: string[] }>("extract_archives", { dir }),
+    invoke<{ extracted: string[]; failed: string[]; changed: string[]; removed: string[] }>("extract_archives", { dir }),
   detectSlicers: () =>
     invoke<{ bambu: string[] | null; prusa: string[] | null }>("detect_slicers"),
   openInSlicer: (command: string[], files: string[], singleInstance: boolean) =>
@@ -64,10 +64,10 @@ export const api = {
   drivethruDownload: (p: {
     key: string;
     orderProductId: number;
-    files: { index: number; filename: string }[];
+    files: DriveThruFile[];
     destDir: string;
     remoteModifiedMs: number | null;
-  }) => invoke<{ downloaded: string[]; skipped: string[] }>("drivethru_download", p),
+  }) => invoke<{ downloaded: string[]; skipped: string[]; changed: string[] }>("drivethru_download", p),
 };
 
 export function formatDuration(sec: number): string {

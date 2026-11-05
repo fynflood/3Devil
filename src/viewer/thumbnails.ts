@@ -36,12 +36,12 @@ async function renderThumb(path: string, fileSize: number): Promise<Blob> {
 let chain: Promise<unknown> = Promise.resolve();
 const urls = new Map<string, Promise<string | null>>();
 
-function keyFor(path: string, size: number) {
-  return `thumb:v1:${path}:${size}`;
+function keyFor(path: string, size: number, revision?: number) {
+  return `thumb:v1:${path}:${size}${revision ? `:${revision}` : ""}`;
 }
 
-export function thumbnailUrl(path: string, size: number): Promise<string | null> {
-  const key = keyFor(path, size);
+export function thumbnailUrl(path: string, size: number, revision?: number): Promise<string | null> {
+  const key = keyFor(path, size, revision);
   let p = urls.get(key);
   if (!p) {
     p = (async () => {
@@ -61,16 +61,19 @@ export function thumbnailUrl(path: string, size: number): Promise<string | null>
   return p;
 }
 
-/** Lazily resolves a cached thumbnail once `visible` becomes true. */
-export function useThumbnail(path: string, size: number, visible: boolean) {
+/**
+ * Lazily resolves a cached thumbnail once `visible` becomes true. `revision`
+ * tells apart two versions of a file that happen to be the same size.
+ */
+export function useThumbnail(path: string, size: number, visible: boolean, revision?: number) {
   const [url, setUrl] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     if (!visible) return;
     let live = true;
-    thumbnailUrl(path, size).then((u) => live && setUrl(u));
+    thumbnailUrl(path, size, revision).then((u) => live && setUrl(u));
     return () => {
       live = false;
     };
-  }, [path, size, visible]);
+  }, [path, size, visible, revision]);
   return url;
 }

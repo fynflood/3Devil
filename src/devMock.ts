@@ -145,7 +145,7 @@ async function mockDownload(orderProductId: number, files: { filename: string }[
       await emit("drivethru-progress", { orderProductId, file: f.filename, fileIndex: i, fileCount: files.length, received: step * 5e6, total: 2e7 });
     }
   }
-  return { downloaded: files.map((f) => f.filename), skipped: [] };
+  return { downloaded: files.map((f) => f.filename), skipped: [], changed: [] };
 }
 
 mockWindows("main");
@@ -203,7 +203,7 @@ mockIPC(async (cmd, args) => {
       // Folders under /home/other stand in for another computer's paths.
       return (a.paths as string[]).filter((p) => p.startsWith("/home/other/"));
     case "extract_archives":
-      return { extracted: [], failed: [] };
+      return { extracted: [], failed: [], changed: [], removed: [], ...(window as unknown as { __mockArchiveChanges?: object }).__mockArchiveChanges };
     case "detect_slicers":
       return { bambu: ["bambu-studio"], prusa: ["prusa-slicer"] };
     case "open_in_slicer":
