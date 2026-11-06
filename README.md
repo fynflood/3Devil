@@ -57,7 +57,7 @@ Pick the package for your distribution. They need a 2024 or newer release (Ubunt
 
 ### Updates
 
-From version 0.1.2 on, 3Devil checks GitHub for new releases, downloads them in the background and, for one found when the app starts, asks whether to install it now. Choose *Not now*, or let a later check find it, and **Restart to update** waits in the sidebar instead. Nothing installs until you click. On Linux, `.deb` and `.rpm` installs ask for your password to install the update. Turn automatic checks off, or check by hand, under **Settings → General**. Versions before 0.1.2 have to be updated by downloading the new installer once.
+From version 0.1.2 on, 3Devil checks GitHub for new releases, downloads them in the background and, for one found when the app starts, shows what's in it and asks whether to install it now. Choose *Not now*, or let a later check find it, and **Restart to update** waits in the sidebar instead. Nothing installs until you click. After updating, 3Devil shows what's new once; **Settings → General → What's new** shows the full list any time. On Linux, `.deb` and `.rpm` installs ask for your password to install the update. Turn automatic checks off, or check by hand, under **Settings → General**. Versions before 0.1.2 have to be updated by downloading the new installer once.
 
 ### Where your data lives
 
@@ -138,6 +138,8 @@ cd src-tauri && cargo test
 ```
 
 ### Releases
+
+Add a section for the version to `CHANGELOG.md` first: it becomes the release notes, and what the app shows after updating. Write it for the people using the app.
 
 Pushing a version tag builds installers for every platform on GitHub Actions (`.github/workflows/release.yml`) and attaches them to a draft release to review and publish:
 

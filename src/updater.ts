@@ -18,8 +18,8 @@ export type UpdateState =
 
 export interface Updater {
   state: UpdateState;
-  /** The version to offer installing, once the check at launch has it downloaded. */
-  offered: string | null;
+  /** The update to offer installing, once the check at launch has it downloaded. */
+  offered: { version: string; notes?: string } | null;
   /** Declines the offer; the update stays ready to install from the sidebar. */
   declineOffer: () => void;
   /** Looks for an update now; a found update downloads in the background. */
@@ -39,7 +39,7 @@ export function useUpdater(auto: boolean): Updater {
   const pending = useRef<Update | null>(null);
   const busy = useRef(false);
   const launchChecked = useRef(false);
-  const [offered, setOffered] = useState<string | null>(null);
+  const [offered, setOffered] = useState<Updater["offered"]>(null);
 
   const run = useCallback(async (offer: boolean) => {
     if (busy.current || pending.current) return;
@@ -62,7 +62,7 @@ export function useUpdater(auto: boolean): Updater {
       });
       pending.current = update;
       setState({ status: "ready", version: update.version, notes: update.body });
-      if (offer) setOffered(update.version);
+      if (offer) setOffered({ version: update.version, notes: update.body });
     } catch (e) {
       setState({ status: "error", message: String(e) });
     } finally {

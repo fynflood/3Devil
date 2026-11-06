@@ -1,4 +1,5 @@
 import type { Updater } from "../updater";
+import { ReleaseNotes } from "./WhatsNew";
 
 /** Asks whether to install the update found when the app started. */
 export function UpdatePrompt({ updater }: { updater: Updater }) {
@@ -8,7 +9,8 @@ export function UpdatePrompt({ updater }: { updater: Updater }) {
   return (
     <div className="modal-backdrop">
       <div className="modal">
-        <h2>3Devil {offered} is ready to install</h2>
+        <h2>3Devil {offered.version} is ready to install</h2>
+        {offered.notes && <ReleaseNotes notes={offered.notes} />}
         <p className="muted">Installing restarts 3Devil. If you'd rather wait, you can install it from the sidebar at any time.</p>
         {state.status === "error" && <p className="small error-text">Couldn't install it: {state.message}</p>}
         <div className="btn-row end">

@@ -424,6 +424,12 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: grid; place-items: center; z-index: 50; }
 .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; width: 520px; max-width: calc(100vw - 32px); display: flex; flex-direction: column; gap: 12px; }
 .modal h2 { margin: 0; }
+.release-notes { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.modal .release-notes { max-height: 45vh; overflow-y: auto; }
+.whats-new { width: 600px; }
+.whats-new-list { max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.whats-new-list h3 { margin: 0 0 6px; font-size: 14px; }
+.whats-new-list .release-notes { max-height: none; }
 .modal p { margin: 0; }
 .remove-path { word-break: break-all; }
 .segmented { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }

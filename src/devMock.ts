@@ -323,9 +323,9 @@ mockIPC(async (cmd, args) => {
     case "drivethru_download":
       return mockDownload(a.orderProductId as number, a.files as { filename: string }[]);
     case "plugin:app|version":
-      return "0.1.1";
+      return localStorage.getItem("3devil-mock-version") ?? "0.1.1";
     case "plugin:updater|check":
-      return { rid: 1, currentVersion: "0.1.1", version: "0.1.2", body: "Mock release", rawJson: {} };
+      return { rid: 1, currentVersion: "0.1.1", version: "0.1.2", body: "- **First** change in this version\n- Second change", rawJson: {} };
     case "plugin:updater|download": {
       // Pretend to download 6 MB over about three seconds.
       const ch = a.onEvent as { onmessage: (m: unknown) => void };

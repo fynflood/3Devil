@@ -14,7 +14,7 @@ interface Props {
   notify: (msg: string, kind?: "info" | "error") => void;
 }
 
-function UpdateSettings({ store, updater }: { store: Store; updater: Updater }) {
+function UpdateSettings({ store, updater, onWhatsNew }: { store: Store; updater: Updater; onWhatsNew: () => void }) {
   const [version, setVersion] = useState("");
   useEffect(() => {
     getVersion().then(setVersion).catch(() => undefined);
@@ -47,6 +47,7 @@ function UpdateSettings({ store, updater }: { store: Store; updater: Updater }) 
         <button onClick={updater.checkNow} disabled={state.status === "checking" || state.status === "downloading" || state.status === "installing"}>
           Check now
         </button>
+        <button onClick={onWhatsNew} title="See what's changed in each version">What's new</button>
         {state.status === "ready" && <button className="primary" onClick={updater.installAndRestart}>Restart to update</button>}
       </div>
       {status && <p className={`small ${state.status === "error" ? "error-text" : "muted"}`}>{status}</p>}
@@ -174,7 +175,7 @@ const TABS: [SettingsTab, string][] = [
   ["sync", "Sync"],
 ];
 
-export function SettingsView({ store, notify, updater, tab, onTab }: Props & { updater: Updater; tab: SettingsTab; onTab: (tab: SettingsTab) => void }) {
+export function SettingsView({ store, notify, updater, tab, onTab, onWhatsNew }: Props & { updater: Updater; tab: SettingsTab; onTab: (tab: SettingsTab) => void; onWhatsNew: () => void }) {
   const { settings } = store.state!;
   const slicers = enabledSlicers(settings);
   return (
@@ -206,7 +207,7 @@ export function SettingsView({ store, notify, updater, tab, onTab }: Props & { u
             </div>
             <p className="muted small">System follows your computer's light or dark setting.</p>
           </section>
-          <UpdateSettings store={store} updater={updater} />
+          <UpdateSettings store={store} updater={updater} onWhatsNew={onWhatsNew} />
         </>
       )}
       {tab === "slicers" && (

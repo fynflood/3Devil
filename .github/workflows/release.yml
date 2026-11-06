@@ -52,6 +52,20 @@ jobs:
 
       - run: npm ci
 
+      # This version's section of CHANGELOG.md becomes the release notes, which
+      # installed copies show when offering the update.
+      - name: Read release notes
+        id: notes
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes=$(awk -v v="## $version" '$0 == v { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md)
+          {
+            echo "body<<END_OF_NOTES"
+            echo "${notes:-See the README for install instructions.}"
+            echo "END_OF_NOTES"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -61,7 +75,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 3Devil v__VERSION__
-          releaseBody: See the README for install instructions.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

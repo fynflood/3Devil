@@ -15,6 +15,7 @@ import { useDriveThru } from "./driveThru";
 import { useMyMiniFactory } from "./myMiniFactory";
 import { UpdateCard } from "./components/UpdateCard";
 import { UpdatePrompt } from "./components/UpdatePrompt";
+import { useWhatsNew, WhatsNew } from "./components/WhatsNew";
 import { useReorder } from "./useReorder";
 import { api } from "./api";
 import type { Store } from "./store";
@@ -50,6 +51,7 @@ export default function App() {
   const partProgress = useMemo(() => printProgress(state?.projects ?? [], statuses), [state?.projects, statuses]);
   const driveThru = useDriveThru(store, notify);
   const mmf = useMyMiniFactory(store, notify);
+  const whatsNew = useWhatsNew(!!state, !!state?.projects.length);
   const projectIds = useMemo(() => state?.projects.map((p) => p.id) ?? [], [state?.projects]);
   const reorder = useReorder(projectIds, actions.moveProject);
   // Not in development, where an update would try to replace the dev build. The browser mock can opt in.
@@ -227,7 +229,7 @@ export default function App() {
 
       <main className="main">
         {view === "settings" ? (
-          <SettingsView store={store} notify={notify} updater={updater} tab={settingsTab} onTab={setSettingsTab} />
+          <SettingsView store={store} notify={notify} updater={updater} tab={settingsTab} onTab={setSettingsTab} onWhatsNew={whatsNew.showAll} />
         ) : view === "printers" ? (
           <PrintersView store={store} statuses={statuses} onOpenPart={openPart} notify={notify} />
         ) : view === "library" ? (
@@ -285,6 +287,7 @@ export default function App() {
         />
       )}
       {!review && !creating && <UpdatePrompt updater={updater} />}
+      {whatsNew.shown && !review && !creating && !updater.offered && <WhatsNew releases={whatsNew.shown} onClose={whatsNew.dismiss} />}
       {toast && <div className={`toast ${toast.kind}`} onClick={() => setToast(null)}>{toast.msg}</div>}
     </div>
   );
