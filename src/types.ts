@@ -1,9 +1,11 @@
-export type SlicerId = "bambu" | "prusa" | "orca";
+export type SlicerId = "bambu" | "prusa" | "orca" | "chitubox" | "lychee";
 
 export const SLICER_NAMES: Record<SlicerId, string> = {
   bambu: "Bambu Studio",
   prusa: "PrusaSlicer",
   orca: "OrcaSlicer",
+  chitubox: "CHITUBOX",
+  lychee: "Lychee Slicer",
 };
 
 export const SLICER_IDS = Object.keys(SLICER_NAMES) as SlicerId[];
@@ -190,6 +192,8 @@ export interface Project {
   removedGroups?: string[];
   /** Set when the project was created from a DriveThruRPG library product. */
   driveThru?: DriveThruLink;
+  /** Set when the project was created from a MyMiniFactory model. */
+  myMiniFactory?: { objectId: number };
   createdAt: number;
   updatedAt: number;
 }
@@ -231,11 +235,39 @@ export interface DriveThruLibrary {
 
 export type Theme = "system" | "light" | "dark";
 
+export interface MmfAccount {
+  username: string;
+  /** Seconds since 1970. */
+  expiresAt: number;
+}
+
+export interface MmfModel {
+  id: number;
+  name: string;
+  url: string;
+  designer: string | null;
+  /** As shown on the store, like `£3.99`; null for a free model. */
+  price: string | null;
+  /** Whether this account owns it, when MyMiniFactory says. */
+  bought: boolean | null;
+}
+
+export interface MmfLibrary {
+  likes: MmfModel[];
+  collections: { name: string; models: MmfModel[] }[];
+}
+
+/** Where the Model Library is browsing. */
+export type LibrarySource = "drivethru" | "myminifactory";
+
 export interface Settings {
   slicers: Record<SlicerId, string[] | null>;
   defaultSlicer: SlicerId;
   /** Slicers offered around the app. Unset until the first look for installed ones. */
   enabledSlicers?: SlicerId[];
+  librarySource?: LibrarySource;
+  /** Where MyMiniFactory models download, as <folder>/<designer>/<model>. */
+  myMiniFactory?: { libraryPath: string };
   /** Send files to an already-open slicer window (default on). */
   reuseSlicerWindow?: boolean;
   /** Colour theme; "system" (the default) follows the OS. */

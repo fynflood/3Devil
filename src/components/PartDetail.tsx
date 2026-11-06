@@ -2,6 +2,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ModelViewer } from "../viewer/ModelViewer";
 import { useEffect, useState } from "react";
 import { formatBytes, formatDuration, parseDuration } from "../api";
+import type { PartProgress } from "../printers";
 import type { Store } from "../store";
 import { SLICER_NAMES, type JobItem, type Part, type Project, type SlicerId } from "../types";
 
@@ -12,6 +13,10 @@ interface Props {
   queued: number;
   /** Of the queued copies, how many are on a printer right now. */
   printing: number;
+  /** How far along that print is. */
+  progress?: PartProgress;
+  /** Starts the 3D view; held back until the panel has stopped sliding. */
+  showViewer: boolean;
   /** What printers are making right now, by job id. */
   running: Map<string, JobItem[]>;
   /** The slicers to offer. */
@@ -25,7 +30,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function PartDetail({ store, project, part, queued, printing, running, slicers, replaceCandidates, newerVersion, onOpenPart, onSend, onClose }: Props) {
+export function PartDetail({ store, project, part, queued, printing, progress, showViewer, running, slicers, replaceCandidates, newerVersion, onOpenPart, onSend, onClose }: Props) {
   const update = (patch: Partial<Part>) => store.actions.updatePart(project.id, part.id, patch);
   const jobs = project.jobs.filter((j) => j.items.some((it) => it.partId === part.id));
   const num = (v: string) => Math.max(0, parseInt(v, 10) || 0);
@@ -38,8 +43,10 @@ export function PartDetail({ store, project, part, queued, printing, running, sl
       </div>
       {part.missing ? (
         <div className="viewer"><div className="viewer-overlay error">File not found:<br />{part.path}</div></div>
-      ) : (
+      ) : showViewer ? (
         <ModelViewer path={part.path} size={part.size} />
+      ) : (
+        <div className="viewer" />
       )}
 
       <div className="detail-body">
@@ -76,9 +83,20 @@ export function PartDetail({ store, project, part, queued, printing, running, sl
           </label>
         </div>
         {printing > 0 ? (
-          <p className="muted queued-note">
-            {printing === 1 ? "Printing now" : `${printing} printing now`}{queued > printing ? `, ${queued - printing} more queued` : ""}.
-          </p>
+          <>
+            <p className="muted queued-note">
+              {printing === 1 ? "Printing now" : `${printing} printing now`}{queued > printing ? `, ${queued - printing} more queued` : ""}.
+            </p>
+            {progress && (
+              <div className="detail-progress">
+                <div className="progress"><div style={{ width: `${progress.percent}%` }} /></div>
+                <span className="small">
+                  <strong>{progress.percent}%</strong>
+                  {progress.minutesLeft !== undefined && <span className="muted"> · {formatDuration(progress.minutesLeft * 60)} left</span>}
+                </span>
+              </div>
+            )}
+          </>
         ) : queued > 0 && (
           <p className="muted queued-note">
             {queued} in queued print jobs.
@@ -94,7 +112,7 @@ export function PartDetail({ store, project, part, queued, printing, running, sl
         <div className="stat-row">
           <label>
             Material
-            <input placeholder="PLA, PETG…" value={part.material ?? ""} onChange={(e) => update({ material: e.target.value })} />
+            <input placeholder="PLA, PETG, resin…" value={part.material ?? ""} onChange={(e) => update({ material: e.target.value })} />
           </label>
           <label>
             Colour

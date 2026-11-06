@@ -6,18 +6,19 @@ import { describeScan, type Store } from "../store";
 
 interface Props {
   store: Store;
+  initialSource: Source;
   onClose: () => void;
   onCreated: (id: string) => void;
   notify: (msg: string, kind?: "info" | "error") => void;
 }
 
-type Source = "folder" | "zip" | "empty";
+export type Source = "folder" | "zip" | "empty";
 
-export function NewProjectDialog({ store, onClose, onCreated, notify }: Props) {
+export function NewProjectDialog({ store, initialSource, onClose, onCreated, notify }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
-  const [source, setSource] = useState<Source>("folder");
+  const [source, setSource] = useState<Source>(initialSource);
   const [path, setPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { DriveThruFile, DriveThruLibrary, ModelFile, SlicerId } from "./types";
+import type { MmfAccount, MmfLibrary, MmfModel, DriveThruFile, DriveThruLibrary, ModelFile, SlicerId } from "./types";
 
 export interface FoundPrinter {
   ip: string;
@@ -44,6 +44,15 @@ export const api = {
   addPathMapping: (missing: string, found: string) => invoke<PathMapping>("add_path_mapping", { missing, found }),
   removePathMapping: (from: string) => invoke<void>("remove_path_mapping", { from }),
   scanModels: (dir: string) => invoke<ModelFile[]>("scan_models", { dir }),
+  mmfSession: () => invoke<MmfAccount | null>("mmf_session"),
+  /** Opens MyMiniFactory's sign-in page and waits for it. */
+  mmfSignIn: () => invoke<MmfAccount>("mmf_sign_in"),
+  mmfCancelSignIn: () => invoke<void>("mmf_cancel_sign_in"),
+  mmfSignOut: () => invoke<void>("mmf_sign_out"),
+  mmfLibrary: () => invoke<MmfLibrary>("mmf_library"),
+  mmfLookup: (link: string) => invoke<MmfModel>("mmf_lookup", { link }),
+  mmfDownload: (objectId: number, destDir: string) =>
+    invoke<{ downloaded: string[]; skipped: string[] }>("mmf_download", { objectId, destDir }),
   /** What moving `path` to the Trash would involve; `roots` are the project's folders. */
   folderTrashPlan: (path: string, roots: string[]) => invoke<TrashPlan>("folder_trash_plan", { path, roots }),
   trashFolder: (path: string, roots: string[]) => invoke<void>("trash_folder", { path, roots }),

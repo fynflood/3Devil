@@ -8,6 +8,8 @@ interface Props {
   queued: number;
   /** Of the queued copies, how many are on a printer right now. */
   printing: number;
+  /** How far along that print is. */
+  progress?: number;
   selected: boolean;
   focused: boolean;
   onToggle: (id: string, range: boolean) => void;
@@ -37,7 +39,7 @@ function useVisible<T extends Element>() {
 }
 
 export const PartCard = memo(function PartCard({
-  part, status, queued, printing, selected, focused, onToggle, onFocus, onAdjust, onDragOut, onUnqueue, isRevision, hasNewerVersion,
+  part, status, queued, printing, progress, selected, focused, onToggle, onFocus, onAdjust, onDragOut, onUnqueue, isRevision, hasNewerVersion,
 }: Props) {
   const [ref, visible] = useVisible<HTMLDivElement>();
   const imgRef = useRef<HTMLImageElement>(null);
@@ -97,6 +99,12 @@ export const PartCard = memo(function PartCard({
           </span>
         )}
         {status === "done" && <span className="badge done">✓</span>}
+        {status === "printing" && progress !== undefined && (
+          <div className="thumb-progress">
+            <div className="progress thin"><div style={{ width: `${progress}%` }} /></div>
+            <span>{progress}%</span>
+          </div>
+        )}
         {hasNewerVersion ? (
           <span className="update-tag outdated">Outdated</span>
         ) : part.update && (

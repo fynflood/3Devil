@@ -8,6 +8,7 @@ use std::time::SystemTime;
 
 mod drivethru;
 mod folders;
+mod myminifactory;
 mod orca;
 mod preview;
 mod printer;
@@ -336,6 +337,8 @@ struct DetectedSlicers {
     bambu: Option<Vec<String>>,
     prusa: Option<Vec<String>>,
     orca: Option<Vec<String>>,
+    chitubox: Option<Vec<String>>,
+    lychee: Option<Vec<String>>,
 }
 
 pub(crate) fn which(bin: &str) -> Option<String> {
@@ -448,7 +451,28 @@ fn detect_slicers() -> DetectedSlicers {
             .map(|p| vec![p])
             .or_else(|| flatpak_app("com.orcaslicer.OrcaSlicer"))
     };
-    DetectedSlicers { bambu, prusa, orca }
+    let chitubox = if cfg!(target_os = "windows") {
+        first_existing(&[r"C:\Program Files\CHITUBOX\CHITUBOX.exe"])
+    } else if cfg!(target_os = "macos") {
+        first_existing(&["/Applications/CHITUBOX.app/Contents/MacOS/CHITUBOX"])
+    } else {
+        which("chitubox").or_else(|| which("CHITUBOX")).map(|p| vec![p])
+    };
+    let lychee = if cfg!(target_os = "windows") {
+        first_existing(&[r"C:\Program Files\LycheeSlicer\LycheeSlicer.exe"])
+    } else if cfg!(target_os = "macos") {
+        first_existing(&["/Applications/LycheeSlicer.app/Contents/MacOS/LycheeSlicer"])
+    } else {
+        // Its .deb starts it this way from the desktop menu too.
+        first_existing(&["/opt/LycheeSlicer/lycheeslicer"])
+            .map(|mut c| {
+                c.push("--no-sandbox".into());
+                c
+            })
+            .or_else(|| which("lycheeslicer").map(|p| vec![p]))
+            .or_else(|| flatpak_app("io.mango3d.LycheeSlicer"))
+    };
+    DetectedSlicers { bambu, prusa, orca, chitubox, lychee }
 }
 
 /// Launches a slicer with the given model files loaded. `command` is the
@@ -492,6 +516,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(printer::Printers::default())
         .manage(camera::Cameras::default())
+        .manage(myminifactory::MyMiniFactory::default())
         .manage(drivethru::DriveThru::default())
         .invoke_handler(tauri::generate_handler![
             storage::load_state,
@@ -503,6 +528,13 @@ pub fn run() {
             storage::add_path_mapping,
             storage::remove_path_mapping,
             scan_models,
+            myminifactory::mmf_session,
+            myminifactory::mmf_sign_in,
+            myminifactory::mmf_cancel_sign_in,
+            myminifactory::mmf_sign_out,
+            myminifactory::mmf_library,
+            myminifactory::mmf_lookup,
+            myminifactory::mmf_download,
             folders::folder_trash_plan,
             folders::trash_folder,
             orca::orca_single_instance,

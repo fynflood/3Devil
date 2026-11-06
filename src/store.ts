@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, basename } from "./api";
-import type {
+import type { LibrarySource,
   AppState,
   DriveThruSettings,
   Job,
@@ -17,7 +17,7 @@ import type {
 const EMPTY: AppState = {
   version: 1,
   projects: [],
-  settings: { slicers: { bambu: null, prusa: null, orca: null }, defaultSlicer: "bambu", printers: [] },
+  settings: { slicers: { bambu: null, prusa: null, orca: null, chitubox: null, lychee: null }, defaultSlicer: "bambu", printers: [] },
 };
 
 export const uid = () => crypto.randomUUID();
@@ -295,7 +295,7 @@ export function useStore() {
 
   const actions = useMemo(() => {
     const actions = {
-    createProject(init: Pick<Project, "name" | "description" | "sourceUrl" | "driveThru">): string {
+    createProject(init: Pick<Project, "name" | "description" | "sourceUrl" | "driveThru" | "myMiniFactory">): string {
       const id = uid();
       const now = Date.now();
       mutate((s) => {
@@ -687,6 +687,16 @@ export function useStore() {
     setReuseSlicerWindow(value: boolean) {
       mutate((s) => {
         s.settings.reuseSlicerWindow = value;
+      });
+    },
+    setMyMiniFactory(settings: { libraryPath: string }) {
+      mutate((s) => {
+        s.settings.myMiniFactory = settings;
+      });
+    },
+    setLibrarySource(source: LibrarySource) {
+      mutate((s) => {
+        s.settings.librarySource = source;
       });
     },
     setTheme(theme: Theme) {

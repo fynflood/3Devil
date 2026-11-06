@@ -100,6 +100,25 @@ export function runningJobs(projects: Project[], statuses: Record<string, Printe
   return running;
 }
 
+export interface PartProgress {
+  percent: number;
+  minutesLeft?: number;
+}
+
+/** How far along the print making each part is, by part id. */
+export function printProgress(projects: Project[], statuses: Record<string, PrinterStatus>) {
+  const progress = new Map<string, PartProgress>();
+  for (const { id, connected, print } of Object.values(statuses)) {
+    if (!connected || !ACTIVE_STATES.has(print.gcode_state ?? "")) continue;
+    const linked = linkedJob(projects, id, print);
+    if (!linked) continue;
+    for (const it of itemsInPrint(linked.project, linked.job, print.subtask_name ?? "")) {
+      progress.set(it.partId, { percent: print.mc_percent ?? 0, minutesLeft: print.mc_remaining_time });
+    }
+  }
+  return progress;
+}
+
 /** Copies of each part on a printer right now. */
 export function printingCounts(project: Project, running: Map<string, JobItem[]>) {
   const m = new Map<string, number>();

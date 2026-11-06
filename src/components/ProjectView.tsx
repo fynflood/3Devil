@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api, formatDuration, formatLongDuration } from "../api";
@@ -17,6 +17,7 @@ import { JobsView } from "./JobsView";
 import { locateFolder, useMissingFolders } from "./SyncSettings";
 import { DownloadStatus } from "./DriveThruView";
 import type { DriveThru } from "../driveThru";
+import type { PartProgress } from "../printers";
 
 interface Props {
   store: Store;
@@ -24,6 +25,8 @@ interface Props {
   driveThru: DriveThru;
   /** What printers are making right now, by job id. */
   running: Map<string, JobItem[]>;
+  /** How far along each part's print is. */
+  partProgress: Map<string, PartProgress>;
   notify: (msg: string, kind?: "info" | "error") => void;
   /** Ask the view to open a part (from global search or a printer card). */
   focusRequest?: { partId: string; n: number } | null;
@@ -59,7 +62,46 @@ function groupLabel(group: string, shared: string) {
   return group === shared ? group.slice(group.lastIndexOf("/") + 1) : group.slice(shared.length + 1);
 }
 
-export function ProjectView({ store, project, driveThru, running, notify, focusRequest, onReview }: Props) {
+/** How long the part panel and folders take to close; covers `detail-close` and `group-close` in App.css. */
+const CLOSE_MS = 180;
+/** How long the part panel takes to slide open; matches `detail-open` in App.css. */
+const PANEL_OPEN_MS = 220;
+
+/** Keeps the last value for a moment after it clears, so what shows it can animate away. */
+function useLingering(id: string | null) {
+  const [last, setLast] = useState(id);
+  useEffect(() => {
+    if (id) return setLast(id);
+    const timer = window.setTimeout(() => setLast(null), CLOSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [id]);
+  return id ?? last;
+}
+
+/** A folder's parts. They're only mounted while open, and animate when toggled but not on first showing. */
+function GroupBody({ open, children }: { open: boolean; children: ReactNode }) {
+  const [wasOpen, setWasOpen] = useState(open);
+  const [toggled, setToggled] = useState(false);
+  const [closing, setClosing] = useState(false);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    setToggled(true);
+    setClosing(!open);
+  }
+  useEffect(() => {
+    if (!closing) return;
+    const timer = window.setTimeout(() => setClosing(false), CLOSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [closing]);
+  if (!open && !closing) return null;
+  return (
+    <div className={`group-body${toggled ? " animated" : ""}${open ? "" : " closing"}`}>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+export function ProjectView({ store, project, driveThru, running, partProgress, notify, focusRequest, onReview }: Props) {
   const { actions, state } = store;
   const [tab, setTab] = useState<"parts" | "jobs">("parts");
   const [removing, setRemoving] = useState<string | null>(null);
@@ -251,7 +293,15 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
   });
 
   const sel = [...selected].filter((id) => project.parts.some((p) => p.id === id));
-  const focus = project.parts.find((p) => p.id === focusId) ?? null;
+  const panelId = useLingering(focusId);
+  const panelOpen = focusId !== null;
+  const [panelSettled, setPanelSettled] = useState(false);
+  useEffect(() => {
+    if (!panelOpen) return setPanelSettled(false);
+    const timer = window.setTimeout(() => setPanelSettled(true), PANEL_OPEN_MS);
+    return () => window.clearTimeout(timer);
+  }, [panelOpen]);
+  const focus = project.parts.find((p) => p.id === panelId) ?? null;
   const update = driveThru.updates.get(project.id);
   const match = driveThru.matches.get(project.id);
   const slicers = enabledSlicers(state!.settings);
@@ -430,7 +480,7 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
                     <section key={group} className={`group${isCollapsed ? " collapsed" : ""}`}>
                       <div className="group-head">
                         <button className="group-toggle" title={group} onClick={() => setCollapsed([group], !isCollapsed)}>
-                          <span className="caret">{isCollapsed ? "▸" : "▾"}</span>
+                          <span className={`caret${isCollapsed ? " shut" : ""}`}>▾</span>
                           <span className="group-path">{name.slice(0, leaf)}</span>
                           <span className="group-leaf">{name.slice(leaf)}</span>
                         </button>
@@ -464,7 +514,7 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
                           </button>
                         </span>
                       </div>
-                      {!isCollapsed && (
+                      <GroupBody open={!isCollapsed}>
                         <div className="grid">
                           {parts.map((p) => (
                             <PartCard
@@ -473,6 +523,7 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
                               status={statusOf(p)}
                               queued={queued.get(p.id) ?? 0}
                               printing={printing.get(p.id) ?? 0}
+                              progress={partProgress.get(p.id)?.percent}
                               selected={selected.has(p.id)}
                               focused={focusId === p.id}
                               onToggle={toggle}
@@ -485,7 +536,7 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
                             />
                           ))}
                         </div>
-                      )}
+                      </GroupBody>
                     </section>
                   );
                 })}
@@ -507,21 +558,25 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
         </div>
 
         {focus && (
-          <PartDetail
-            key={focus.id}
-            store={store}
-            project={project}
-            part={focus}
-            queued={queued.get(focus.id) ?? 0}
-            printing={printing.get(focus.id) ?? 0}
-            running={running}
-            slicers={slicers}
-            replaceCandidates={revisions.get(focus.id) ?? []}
-            newerVersion={newerVersions.get(focus.id)}
-            onOpenPart={setFocusId}
-            onSend={send}
-            onClose={() => setFocusId(null)}
-          />
+          <div className={`detail-slide${focusId ? "" : " closing"}`}>
+            <PartDetail
+              key={focus.id}
+              store={store}
+              project={project}
+              part={focus}
+              queued={queued.get(focus.id) ?? 0}
+              printing={printing.get(focus.id) ?? 0}
+              progress={partProgress.get(focus.id)}
+              showViewer={panelSettled}
+              running={running}
+              slicers={slicers}
+              replaceCandidates={revisions.get(focus.id) ?? []}
+              newerVersion={newerVersions.get(focus.id)}
+              onOpenPart={setFocusId}
+              onSend={send}
+              onClose={() => setFocusId(null)}
+            />
+          </div>
         )}
       </div>
 

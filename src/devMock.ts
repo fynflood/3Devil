@@ -218,6 +218,34 @@ mockIPC(async (cmd, args) => {
       if ((window as unknown as { __mockScan?: unknown }).__mockScan) return (window as unknown as { __mockScan: (dir: string) => unknown }).__mockScan(a.dir as string);
       console.info("[mock] folder scanning isn't available in the browser");
       return [];
+    case "mmf_session":
+      return (window as unknown as { __mockMmf?: unknown }).__mockMmf ?? null;
+    case "mmf_sign_in":
+      await new Promise((r) => setTimeout(r, 300));
+      return ((window as unknown as { __mockMmf?: unknown }).__mockMmf = { username: "demo", expiresAt: Math.floor(Date.now() / 1000) + 604800 });
+    case "mmf_cancel_sign_in":
+      return null;
+    case "mmf_sign_out":
+      (window as unknown as { __mockMmf?: unknown }).__mockMmf = null;
+      return null;
+    case "mmf_library": {
+      const model = (id: number, name: string, price: string | null, bought: boolean | null) => ({ id, name, url: `https://www.myminifactory.com/object/demo-${id}`, designer: "Demo Designer", price, bought });
+      return {
+        likes: [model(1, "Owned Goblin", "€3.99", true), model(2, "Unowned Dragon", "€5.99", false), model(3, "Free Barrel", null, null)],
+        collections: [{ name: "Terrain", models: [model(4, "Stone Wall", "£6.00", true)] }],
+      };
+    }
+    case "mmf_lookup": {
+      const err = (window as unknown as { __mockMmfError?: string }).__mockMmfError;
+      if (err) throw err;
+      return { id: 9, name: "Pasted Model", url: String(a.link), designer: "Demo Designer", price: "€2.00", bought: true };
+    }
+    case "mmf_download": {
+      const err = (window as unknown as { __mockMmfError?: string }).__mockMmfError;
+      if (err) throw err;
+      await new Promise((r) => setTimeout(r, 300));
+      return { downloaded: ["a.stl"], skipped: [] };
+    }
     case "folder_trash_plan":
       return { files: 12, bytes: 3.4e8, zips: [], blocked: null, ...(window as unknown as { __mockTrashPlan?: object }).__mockTrashPlan };
     case "trash_folder":
@@ -242,7 +270,7 @@ mockIPC(async (cmd, args) => {
     case "extract_archives":
       return { extracted: [], failed: [], changed: [], removed: [], ...(window as unknown as { __mockArchiveChanges?: object }).__mockArchiveChanges };
     case "detect_slicers":
-      return { bambu: ["bambu-studio"], prusa: null, orca: null };
+      return { bambu: ["bambu-studio"], prusa: null, orca: null, chitubox: null, lychee: ["flatpak", "run", "io.mango3d.LycheeSlicer"] };
     case "open_in_slicer":
       console.info("[mock] open_in_slicer", a.command, a.files, a.singleInstance);
       return null;

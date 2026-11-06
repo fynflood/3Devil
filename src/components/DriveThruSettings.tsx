@@ -20,7 +20,7 @@ export function DriveThruSettingsSection({ store }: { store: Store }) {
       <p className="muted small">
         Generate a <strong>Library App Key</strong> under “Library App Keys” in your{" "}
         <button className="link" onClick={() => openUrl("https://www.drivethrurpg.com/en/account/settings")}>account settings</button>{" "}
-        and paste it here. Your purchases then appear under <em>DriveThruRPG library</em>, where any product can become a project.
+        and paste it here. Your purchases then appear in this library, where any product can become a project.
       </p>
       <label className="block">
         Library App Key

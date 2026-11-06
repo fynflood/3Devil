@@ -269,13 +269,13 @@ pub fn drivethru_product_dir(library_path: String, publisher: String, name: Stri
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct Progress<'a> {
-    order_product_id: i64,
-    file: &'a str,
-    file_index: usize,
-    file_count: usize,
-    received: u64,
-    total: Option<u64>,
+pub(crate) struct Progress<'a> {
+    pub order_product_id: i64,
+    pub file: &'a str,
+    pub file_index: usize,
+    pub file_count: usize,
+    pub received: u64,
+    pub total: Option<u64>,
 }
 
 #[derive(Serialize, Default)]

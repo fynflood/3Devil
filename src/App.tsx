@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { projectProgress, useStore } from "./store";
-import { runningJobs, usePrinters } from "./printers";
+import { printProgress, runningJobs, usePrinters } from "./printers";
 import { ProjectView } from "./components/ProjectView";
 import { SettingsView, type SettingsTab } from "./components/SettingsView";
 import { PrintersView } from "./components/PrintersView";
 import { NewProjectDialog } from "./components/NewProjectDialog";
 import { PrinterCard } from "./components/PrinterCard";
 import { ReviewPrompt } from "./components/ReviewPrompt";
-import { DriveThruView } from "./components/DriveThruView";
+import { ModelLibrary } from "./components/ModelLibrary";
 import { applyTheme, DEFAULT_THEME } from "./theme";
 import { useUpdater } from "./updater";
 import { useDriveThru } from "./driveThru";
+import { useMyMiniFactory } from "./myMiniFactory";
 import { UpdateCard } from "./components/UpdateCard";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { useReorder } from "./useReorder";
@@ -28,9 +29,9 @@ const MAX_RESULTS = 60;
 export default function App() {
   const store = useStore();
   const { state, error, actions } = store;
-  const [view, setView] = useState<string | "settings" | "printers" | "drivethru" | null>(null);
+  const [view, setView] = useState<string | "settings" | "printers" | "library" | null>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<"folder" | "zip" | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [search, setSearch] = useState("");
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
@@ -46,7 +47,9 @@ export default function App() {
 
   const statuses = usePrinters(store, notify);
   const running = useMemo(() => runningJobs(state?.projects ?? [], statuses), [state?.projects, statuses]);
+  const partProgress = useMemo(() => printProgress(state?.projects ?? [], statuses), [state?.projects, statuses]);
   const driveThru = useDriveThru(store, notify);
+  const mmf = useMyMiniFactory(store, notify);
   const projectIds = useMemo(() => state?.projects.map((p) => p.id) ?? [], [state?.projects]);
   const reorder = useReorder(projectIds, actions.moveProject);
   // Not in development, where an update would try to replace the dev build. The browser mock can opt in.
@@ -119,7 +122,7 @@ export default function App() {
     <div className="app">
       <nav className="sidebar">
         <div className="brand">3Devil</div>
-        <button className="primary wide" onClick={() => setCreating(true)}>+ New project</button>
+        <button className="primary wide" onClick={() => setCreating("folder")}>+ New project</button>
         <input
           className="sidebar-search"
           type="search"
@@ -215,8 +218,8 @@ export default function App() {
           </div>
         )}
         <UpdateCard updater={updater} />
-        <button className={`wide${view === "drivethru" ? " active" : ""}`} onClick={() => setView("drivethru")}>
-          DriveThruRPG library{driveThru.updates.size ? ` · ${driveThru.updates.size} update${driveThru.updates.size === 1 ? "" : "s"}` : ""}
+        <button className={`wide${view === "library" ? " active" : ""}`} onClick={() => setView("library")}>
+          Model Library{driveThru.updates.size ? ` · ${driveThru.updates.size} update${driveThru.updates.size === 1 ? "" : "s"}` : ""}
         </button>
         <button className={`wide${view === "printers" ? " active" : ""}`} onClick={() => setView("printers")}>Printers</button>
         <button className={`wide${view === "settings" ? " active" : ""}`} onClick={() => setView("settings")}>Settings</button>
@@ -227,15 +230,13 @@ export default function App() {
           <SettingsView store={store} notify={notify} updater={updater} tab={settingsTab} onTab={setSettingsTab} />
         ) : view === "printers" ? (
           <PrintersView store={store} statuses={statuses} onOpenPart={openPart} notify={notify} />
-        ) : view === "drivethru" ? (
-          <DriveThruView
+        ) : view === "library" ? (
+          <ModelLibrary
             store={store}
             driveThru={driveThru}
+            mmf={mmf}
             onOpenProject={(id) => { setView(id); setFocusRequest(null); }}
-            onOpenSettings={() => {
-              setSettingsTab("drivethru");
-              setView("settings");
-            }}
+            onImportZip={() => setCreating("zip")}
           />
         ) : project ? (
           <ProjectView
@@ -244,6 +245,7 @@ export default function App() {
             project={project}
             driveThru={driveThru}
             running={running}
+            partProgress={partProgress}
             notify={notify}
             focusRequest={focusRequest}
             onReview={(jobId) => setDeferred((d) => new Set([...d].filter((id) => id !== jobId)))}
@@ -252,7 +254,7 @@ export default function App() {
           <div className="empty welcome">
             <h1>3Devil</h1>
             <p>Track big multi-part print builds: every STL, how many you need, what's printed and what's on the plate.</p>
-            <button className="primary" onClick={() => setCreating(true)}>Create your first project</button>
+            <button className="primary" onClick={() => setCreating("folder")}>Create your first project</button>
           </div>
         )}
       </main>
@@ -261,9 +263,10 @@ export default function App() {
         <NewProjectDialog
           store={store}
           notify={notify}
-          onClose={() => setCreating(false)}
+          initialSource={creating}
+          onClose={() => setCreating(null)}
           onCreated={(id) => {
-            setCreating(false);
+            setCreating(null);
             setView(id);
           }}
         />

@@ -3,7 +3,6 @@ import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, joinCommand, splitCommand } from "../api";
 import type { Store } from "../store";
-import { DriveThruSettingsSection } from "./DriveThruSettings";
 import { SyncSettings } from "./SyncSettings";
 import { enabledSlicers, mainSlicer } from "../slicers";
 import { SLICER_IDS, SLICER_NAMES, type SlicerId, type Theme } from "../types";
@@ -167,12 +166,11 @@ const THEMES: [Theme, string][] = [
   ["dark", "Dark"],
 ];
 
-export type SettingsTab = "general" | "slicers" | "drivethru" | "sync";
+export type SettingsTab = "general" | "slicers" | "sync";
 
 const TABS: [SettingsTab, string][] = [
   ["general", "General"],
   ["slicers", "Slicers"],
-  ["drivethru", "DriveThruRPG"],
   ["sync", "Sync"],
 ];
 
@@ -234,7 +232,6 @@ export function SettingsView({ store, notify, updater, tab, onTab }: Props & { u
           )}
         </section>
       )}
-      {tab === "drivethru" && <DriveThruSettingsSection store={store} />}
       {tab === "sync" && <SyncSettings store={store} notify={notify} />}
     </div>
   );

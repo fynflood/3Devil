@@ -177,7 +177,7 @@ fn read_state(dir: &Path, local: &Local) -> Result<String, String> {
     {
         // Until this computer has its own, find the slicers again rather than
         // using another computer's commands.
-        let slicers = local.slicers.clone().unwrap_or_else(|| json!({ "bambu": null, "prusa": null, "orca": null }));
+        let slicers = local.slicers.clone().unwrap_or_else(|| json!({ "bambu": null, "prusa": null, "orca": null, "chitubox": null, "lychee": null }));
         settings.insert("slicers".into(), slicers);
     }
     Ok(state.to_string())
@@ -428,7 +428,7 @@ mod tests {
         // Another computer joining the folder starts with its slicers unset.
         let other = Local { shared_dir: local.shared_dir.clone(), ..Default::default() };
         let seen: Value = serde_json::from_str(&read_state(&tmpdir("other"), &other).unwrap()).unwrap();
-        assert_eq!(seen["settings"]["slicers"], json!({"bambu": null, "prusa": null, "orca": null}));
+        assert_eq!(seen["settings"]["slicers"], json!({"bambu": null, "prusa": null, "orca": null, "chitubox": null, "lychee": null}));
         let back: Value = serde_json::from_str(&read_state(&app, &read_local(&app)).unwrap()).unwrap();
         assert_eq!(back["settings"]["slicers"]["bambu"][0], "flatpak");
         assert!(!stamp(&shared.join(SHARED_FILE)).is_empty());

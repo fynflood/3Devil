@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { extOf, formatBytes } from "../api";
 import { fileTime, productUrl, type DownloadProgress, type DriveThru } from "../driveThru";
+import { DriveThruSettingsSection } from "./DriveThruSettings";
 import type { Store } from "../store";
 import type { DriveThruProduct, Project } from "../types";
 
@@ -9,7 +10,6 @@ interface Props {
   store: Store;
   driveThru: DriveThru;
   onOpenProject: (id: string) => void;
-  onOpenSettings: () => void;
 }
 
 const PRINT_EXTS = new Set(["zip", "stl", "3mf", "obj", "7z", "rar"]);
@@ -37,12 +37,13 @@ export function DownloadStatus({ progress }: { progress: DownloadProgress | null
   );
 }
 
-export function DriveThruView({ store, driveThru, onOpenProject, onOpenSettings }: Props) {
+export function DriveThruView({ store, driveThru, onOpenProject }: Props) {
   const { key, library, loading, loaded, error, busy, progress, updates, matches, refresh } = driveThru;
   const products = library?.products ?? null;
   const [query, setQuery] = useState("");
   const [printOnly, setPrintOnly] = useState(true);
   const [updatesOnly, setUpdatesOnly] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   const linked = useMemo(() => {
     const m = new Map<number, Project>();
@@ -77,23 +78,12 @@ export function DriveThruView({ store, driveThru, onOpenProject, onOpenSettings 
   };
 
   if (!key) {
-    return (
-      <div className="empty">
-        <h3>Connect your DriveThruRPG library</h3>
-        <p>
-          Generate a <strong>Library App Key</strong> in your{" "}
-          <button className="link" onClick={() => openUrl("https://www.drivethrurpg.com/en/account/settings")}>DriveThruRPG account settings</button>,
-          then paste it into 3Devil's settings. Your purchases will be listed here, ready to turn into projects.
-        </p>
-        <button className="primary" onClick={onOpenSettings}>Open Settings</button>
-      </div>
-    );
+    return <div className="settings library-settings"><DriveThruSettingsSection store={store} /></div>;
   }
 
   return (
     <div className="drivethru">
       <header className="drivethru-head">
-        <h2>DriveThruRPG library</h2>
         <div className="spacer" />
         {updatable.size > 0 && (
           <label className="inline small">
@@ -107,8 +97,10 @@ export function DriveThruView({ store, driveThru, onOpenProject, onOpenSettings 
         </label>
         <input className="search" placeholder="Search library…" value={query} onChange={(e) => setQuery(e.target.value)} />
         <button onClick={refresh} disabled={loading} title="Reload your library from DriveThruRPG">{loading ? "Loading…" : "Refresh"}</button>
+        <button className={connecting ? "active" : ""} onClick={() => setConnecting((v) => !v)} title="Your Library App Key and download folder">Connection</button>
       </header>
-      {error && !products && <div className="empty"><p className="error-text">{error}</p><button onClick={onOpenSettings}>Check settings</button></div>}
+      {connecting && <div className="settings library-settings"><DriveThruSettingsSection store={store} /></div>}
+      {error && !products && <div className="empty"><p className="error-text">{error}</p><button onClick={() => setConnecting(true)}>Check connection</button></div>}
       {loading && !products && (
         <div className="empty">
           <p>Loading your library…{loaded > 0 && ` ${loaded} products so far.`}</p>
