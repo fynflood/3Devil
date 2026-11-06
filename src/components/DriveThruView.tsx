@@ -106,7 +106,7 @@ export function DriveThruView({ store, driveThru, onOpenProject, onOpenSettings 
           Only products with 3D files or ZIPs
         </label>
         <input className="search" placeholder="Search library…" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button onClick={refresh} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
+        <button onClick={refresh} disabled={loading} title="Reload your library from DriveThruRPG">{loading ? "Loading…" : "Refresh"}</button>
       </header>
       {error && !products && <div className="empty"><p className="error-text">{error}</p><button onClick={onOpenSettings}>Check settings</button></div>}
       {loading && !products && (
@@ -139,7 +139,7 @@ export function DriveThruView({ store, driveThru, onOpenProject, onOpenSettings 
                 {project ? (
                   <>
                     {updatable.has(p.orderProductId) && (
-                      <button className="primary" onClick={() => driveThru.update(p, project)} disabled={busy !== null}>Download update</button>
+                      <button className="primary" title="Download only the files the publisher changed" onClick={() => driveThru.update(p, project)} disabled={busy !== null}>Download update</button>
                     )}
                     <button onClick={() => onOpenProject(project.id)}>Open project</button>
                   </>
@@ -150,7 +150,7 @@ export function DriveThruView({ store, driveThru, onOpenProject, onOpenSettings 
                         Link to my project
                       </button>
                     )}
-                    <button className={match ? "" : "primary"} onClick={() => create(p)} disabled={busy !== null}>
+                    <button className={match ? "" : "primary"} title="Download this product and make a project from it" onClick={() => create(p)} disabled={busy !== null}>
                       {isBusy ? "Downloading…" : "Create project"}
                     </button>
                   </>

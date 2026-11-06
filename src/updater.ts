@@ -18,6 +18,10 @@ export type UpdateState =
 
 export interface Updater {
   state: UpdateState;
+  /** The version to offer installing, once the check at launch has it downloaded. */
+  offered: string | null;
+  /** Declines the offer; the update stays ready to install from the sidebar. */
+  declineOffer: () => void;
   /** Looks for an update now; a found update downloads in the background. */
   checkNow: () => Promise<void>;
   /** Installs the downloaded update and restarts the app. */
@@ -26,15 +30,18 @@ export interface Updater {
 
 /**
  * Checks GitHub releases for a newer version (when `auto` is on, at startup
- * and every few hours), downloads it in the background, and leaves the
- * restart to the user so it never interrupts their work.
+ * and every few hours) and downloads it in the background. An update found at
+ * startup is offered right away; one found later waits in the sidebar, so it
+ * never interrupts their work. Either way the restart is left to the user.
  */
 export function useUpdater(auto: boolean): Updater {
   const [state, setState] = useState<UpdateState>({ status: "idle" });
   const pending = useRef<Update | null>(null);
   const busy = useRef(false);
+  const launchChecked = useRef(false);
+  const [offered, setOffered] = useState<string | null>(null);
 
-  const checkNow = useCallback(async () => {
+  const run = useCallback(async (offer: boolean) => {
     if (busy.current || pending.current) return;
     busy.current = true;
     setState({ status: "checking" });
@@ -55,12 +62,16 @@ export function useUpdater(auto: boolean): Updater {
       });
       pending.current = update;
       setState({ status: "ready", version: update.version, notes: update.body });
+      if (offer) setOffered(update.version);
     } catch (e) {
       setState({ status: "error", message: String(e) });
     } finally {
       busy.current = false;
     }
   }, []);
+
+  const checkNow = useCallback(() => run(false), [run]);
+  const declineOffer = useCallback(() => setOffered(null), []);
 
   const installAndRestart = useCallback(async () => {
     const update = pending.current;
@@ -77,13 +88,16 @@ export function useUpdater(auto: boolean): Updater {
 
   useEffect(() => {
     if (!auto) return;
-    const first = window.setTimeout(checkNow, FIRST_CHECK_MS);
+    const first = window.setTimeout(() => {
+      run(!launchChecked.current);
+      launchChecked.current = true;
+    }, FIRST_CHECK_MS);
     const every = window.setInterval(checkNow, CHECK_EVERY_MS);
     return () => {
       window.clearTimeout(first);
       window.clearInterval(every);
     };
-  }, [auto, checkNow]);
+  }, [auto, run, checkNow]);
 
-  return { state, checkNow, installAndRestart };
+  return { state, offered, declineOffer, checkNow, installAndRestart };
 }

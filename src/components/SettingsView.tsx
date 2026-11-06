@@ -42,7 +42,7 @@ function UpdateSettings({ store, updater }: { store: Store; updater: Updater }) 
         Check for updates automatically
       </label>
       <p className="muted small">
-        New versions download in the background; nothing installs until you click <em>Restart to update</em>.
+        New versions download in the background; nothing installs until you say so.
       </p>
       <div className="btn-row">
         <button onClick={updater.checkNow} disabled={state.status === "checking" || state.status === "downloading" || state.status === "installing"}>
@@ -52,6 +52,43 @@ function UpdateSettings({ store, updater }: { store: Store; updater: Updater }) 
       </div>
       {status && <p className={`small ${state.status === "error" ? "error-text" : "muted"}`}>{status}</p>}
     </section>
+  );
+}
+
+/**
+ * OrcaSlicer's own "Allow only one OrcaSlicer instance" preference. It has no
+ * command line switch, so this reads and writes the setting where Orca keeps it.
+ */
+function OrcaWindowOption({ command, notify }: { command: string[] | null; notify: Props["notify"] }) {
+  const [on, setOn] = useState<boolean | null>(null);
+  const key = JSON.stringify(command);
+
+  useEffect(() => {
+    if (!command) return setOn(null);
+    api.orcaSingleInstance(command).then(setOn).catch(() => setOn(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  return (
+    <>
+      <label className="inline small slicer-option">
+        <input
+          type="checkbox"
+          checked={!!on}
+          disabled={on === null}
+          onChange={(e) => {
+            const next = e.target.checked;
+            api.setOrcaSingleInstance(command!, next).then(() => setOn(next)).catch((err) => notify(String(err), "error"));
+          }}
+        />
+        Add to the open OrcaSlicer window instead of opening a new one
+      </label>
+      <p className="muted small slicer-option">
+        {on === null
+          ? "Open OrcaSlicer once, then come back here to set this."
+          : "This is OrcaSlicer's own setting, so close OrcaSlicer before changing it or it may change back."}
+      </p>
+    </>
   );
 }
 
@@ -97,8 +134,9 @@ function SlicerRow({ store, id, notify }: Props & { id: SlicerId }) {
             onChange={(e) => setText(e.target.value)}
             onBlur={() => save(splitCommand(text))}
           />
-          <button onClick={detect}>Detect</button>
+          <button onClick={detect} title={`Look for ${SLICER_NAMES[id]} on this computer`}>Detect</button>
           <button
+            title={`Pick the ${SLICER_NAMES[id]} program yourself`}
             onClick={async () => {
               const p = await open({ title: `Locate ${SLICER_NAMES[id]}` });
               if (typeof p === "string") save([p]);
@@ -118,6 +156,7 @@ function SlicerRow({ store, id, notify }: Props & { id: SlicerId }) {
           Add to the window 3Devil opened instead of opening a new one
         </label>
       )}
+      {on && id === "orca" && <OrcaWindowOption command={saved} notify={notify} />}
     </div>
   );
 }

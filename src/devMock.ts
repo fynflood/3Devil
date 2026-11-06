@@ -214,8 +214,21 @@ mockIPC(async (cmd, args) => {
       return null;
     }
     case "scan_models":
+      // Tests set window.__mockScan to the files a folder holds.
+      if ((window as unknown as { __mockScan?: unknown }).__mockScan) return (window as unknown as { __mockScan: (dir: string) => unknown }).__mockScan(a.dir as string);
       console.info("[mock] folder scanning isn't available in the browser");
       return [];
+    case "folder_trash_plan":
+      return { files: 12, bytes: 3.4e8, zips: [], blocked: null, ...(window as unknown as { __mockTrashPlan?: object }).__mockTrashPlan };
+    case "trash_folder":
+      if ((window as unknown as { __mockTrashError?: string }).__mockTrashError) throw (window as unknown as { __mockTrashError: string }).__mockTrashError;
+      console.info("[mock] trash_folder", a.path);
+      return null;
+    case "orca_single_instance":
+      return (window as unknown as { __mockOrcaWindow?: boolean | null }).__mockOrcaWindow ?? false;
+    case "set_orca_single_instance":
+      (window as unknown as { __mockOrcaWindow?: boolean }).__mockOrcaWindow = a.on as boolean;
+      return null;
     case "read_model_preview":
     case "read_file_bytes": {
       const path = a.path as string;
@@ -297,6 +310,7 @@ mockIPC(async (cmd, args) => {
       return 2;
     }
     case "plugin:updater|install":
+      if ((window as unknown as { __mockInstallError?: string }).__mockInstallError) throw (window as unknown as { __mockInstallError: string }).__mockInstallError;
       return null;
     case "plugin:process|restart":
       console.info("[mock] restart");

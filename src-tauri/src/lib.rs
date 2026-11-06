@@ -7,6 +7,8 @@ use std::process::Command;
 use std::time::SystemTime;
 
 mod drivethru;
+mod folders;
+mod orca;
 mod preview;
 mod printer;
 mod camera;
@@ -108,7 +110,7 @@ fn missing_files(paths: Vec<String>) -> Vec<String> {
 
 /// Where an archive unpacks to: its single top-level folder placed next to
 /// the archive, or otherwise a folder named after the archive.
-fn archive_target(zip_path: &Path, archive: &mut zip::ZipArchive<fs::File>) -> Option<(PathBuf, PathBuf)> {
+pub(crate) fn archive_target(zip_path: &Path, archive: &mut zip::ZipArchive<fs::File>) -> Option<(PathBuf, PathBuf)> {
     let parent = zip_path.parent()?.to_path_buf();
     let mut top: Option<std::ffi::OsString> = None;
     let mut single = true;
@@ -314,7 +316,7 @@ async fn extract_zip(zip_path: String) -> Result<String, String> {
     Ok(dest.to_string_lossy().to_string())
 }
 
-fn collect_zips(dir: &Path, out: &mut Vec<PathBuf>) {
+pub(crate) fn collect_zips(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let p = entry.path();
@@ -501,6 +503,10 @@ pub fn run() {
             storage::add_path_mapping,
             storage::remove_path_mapping,
             scan_models,
+            folders::folder_trash_plan,
+            folders::trash_folder,
+            orca::orca_single_instance,
+            orca::set_orca_single_instance,
             read_file_bytes,
             read_model_preview,
             missing_files,

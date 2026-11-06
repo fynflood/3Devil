@@ -87,8 +87,8 @@ export function PartDetail({ store, project, part, queued, printing, running, sl
         )}
         <PrintTime part={part} onChange={(printSeconds) => update({ printSeconds, printSecondsEstimated: undefined })} />
         <div className="btn-row">
-          <button onClick={() => update({ printed: part.required })} disabled={part.printed >= part.required}>Mark all printed</button>
-          <button onClick={() => update({ printed: 0 })} disabled={part.printed === 0}>Reset</button>
+          <button title="Set Printed to the number needed" onClick={() => update({ printed: part.required })} disabled={part.printed >= part.required}>Mark all printed</button>
+          <button title="Set Printed back to 0" onClick={() => update({ printed: 0 })} disabled={part.printed === 0}>Reset</button>
         </div>
 
         <div className="stat-row">
@@ -135,6 +135,7 @@ export function PartDetail({ store, project, part, queued, printing, running, sl
         )}
         <button
           className="danger link"
+          title="Take this part out of the project. The file stays on disk, and a Rescan adds it back if it's still in the folder"
           onClick={() => {
             store.actions.removeParts(project.id, [part.id]);
             onClose();

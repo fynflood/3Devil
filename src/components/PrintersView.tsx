@@ -97,7 +97,7 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
                   Enabled
                 </label>
                 <button onClick={() => setDraft({ ...p })}>Edit</button>
-                <button className="danger" onClick={() => store.actions.removePrinter(p.id)}>Remove</button>
+                <button className="danger" title="Remove this printer from 3Devil" onClick={() => store.actions.removePrinter(p.id)}>Remove</button>
               </>
             }
           />
@@ -107,7 +107,7 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
         {!draft && (
           <div className="btn-row">
             <button className="primary" onClick={() => setDraft(newPrinter("bambu"))}>Add printer</button>
-            <button onClick={scan} disabled={busy}>{busy ? "Scanning…" : "Find printers on my network"}</button>
+            <button onClick={scan} disabled={busy} title="Scan your local networks for Bambu Lab and Klipper printers">{busy ? "Scanning…" : "Find printers on my network"}</button>
           </div>
         )}
         {!draft && found && found.length > 0 && (
@@ -195,7 +195,7 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
                       value={draft.accessCode}
                       onChange={(e) => editLogin({ accessCode: e.target.value.trim() })}
                     />
-                    <button onClick={() => lookUp(draft)} disabled={busy || !draft.ip || (kind === "prusa" && !draft.accessCode)}>
+                    <button onClick={() => lookUp(draft)} disabled={busy || !draft.ip || (kind === "prusa" && !draft.accessCode)} title="Connect to the printer to check these details">
                       {busy ? "Testing…" : "Test connection"}
                     </button>
                   </div>
@@ -211,7 +211,7 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
                   IP address
                   <div className="btn-row">
                     <input className="grow mono" value={draft.ip} onChange={(e) => setDraft({ ...draft, ip: e.target.value, serial: "" })} placeholder="192.168.1.50" />
-                    <button onClick={() => lookUp(draft)} disabled={busy || !draft.ip}>Look up</button>
+                    <button onClick={() => lookUp(draft)} disabled={busy || !draft.ip} title="Ask the printer at this address for its serial number">Look up</button>
                   </div>
                 </label>
                 <div className="muted small">{draft.serial ? `${draft.model} · serial ${draft.serial}` : "Click Look up to read the printer's serial number."}</div>

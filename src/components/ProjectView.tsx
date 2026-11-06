@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api, formatDuration, formatLongDuration } from "../api";
@@ -12,6 +12,7 @@ import { PartCard } from "./PartCard";
 import { FolderPanel } from "./FolderPanel";
 import { FolderButton, folderOf } from "./FolderButton";
 import { PartDetail } from "./PartDetail";
+import { RemoveFolderDialog } from "./RemoveFolderDialog";
 import { JobsView } from "./JobsView";
 import { locateFolder, useMissingFolders } from "./SyncSettings";
 import { DownloadStatus } from "./DriveThruView";
@@ -33,9 +34,35 @@ interface Props {
 type Filter = "all" | PartStatus | "updated";
 const MODEL_FILTERS = [{ name: "3D models", extensions: ["stl", "3mf", "obj", "STL", "3MF", "OBJ"] }];
 
+const TIPS = {
+  addFolder: "Add every model in a folder to this project. ZIPs inside are unpacked, and sub-folders become groups",
+  addZip: "Unpack a ZIP next to where it's saved and add its models to this project. To start a new project from one, use + New project",
+};
+
+const sendTip = (id: SlicerId) => `Open the selected parts in ${SLICER_NAMES[id]} and add them to a queued print job`;
+
+/** The folder every group sits inside, if there is one. */
+function commonFolder(groups: string[]) {
+  const [first = [], ...rest] = groups.map((g) => g.split("/"));
+  let shared = first.length;
+  for (const segments of rest) {
+    let i = 0;
+    while (i < shared && segments[i] === first[i]) i++;
+    shared = i;
+  }
+  return first.slice(0, shared).join("/");
+}
+
+/** A group's path without the folder all of them share, which only adds length to every row. */
+function groupLabel(group: string, shared: string) {
+  if (!shared) return group;
+  return group === shared ? group.slice(group.lastIndexOf("/") + 1) : group.slice(shared.length + 1);
+}
+
 export function ProjectView({ store, project, driveThru, running, notify, focusRequest, onReview }: Props) {
   const { actions, state } = store;
   const [tab, setTab] = useState<"parts" | "jobs">("parts");
+  const [removing, setRemoving] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -101,6 +128,8 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
   }, [visible]);
 
   const ordered = useMemo(() => groups.flatMap(([, parts]) => parts), [groups]);
+  const sharedFolder = useMemo(() => commonFolder(project.parts.map((p) => p.group)), [project.parts]);
+  const nameLength = Math.max(0, ...groups.map(([g]) => groupLabel(g, sharedFolder).length));
 
   const counts = useMemo(() => {
     const c = { all: active.length, todo: 0, queued: 0, printing: 0, done: 0, updated: 0 };
@@ -196,22 +225,22 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
   };
 
   const addFolder = () => run(async () => {
-    const dir = await open({ directory: true, title: "Add a folder of models" });
+    const dir = await open({ directory: true, title: `Add a folder of models to ${project.name}` });
     if (typeof dir !== "string") return;
-    const r = await actions.addFolder(project.id, dir);
-    notify(describeScan(r), r.failed.length ? "error" : "info");
+    const r = await actions.addFolder(project.id, dir, true);
+    notify(`${project.name}: ${describeScan(r)}`, r.failed.length ? "error" : "info");
   });
 
   const addZip = () => run(async () => {
-    const zip = await open({ title: "Import a ZIP download", filters: [{ name: "ZIP archive", extensions: ["zip", "ZIP"] }] });
+    const zip = await open({ title: `Add a ZIP to ${project.name}`, filters: [{ name: "ZIP archive", extensions: ["zip", "ZIP"] }] });
     if (typeof zip !== "string") return;
     const dir = await api.extractZip(zip);
-    const r = await actions.addFolder(project.id, dir);
-    notify(`Extracted to ${dir}: ${describeScan(r)}`, r.failed.length ? "error" : "info");
+    const r = await actions.addFolder(project.id, dir, true);
+    notify(`${project.name}: unpacked to ${dir}: ${describeScan(r)}`, r.failed.length ? "error" : "info");
   });
 
   const addFiles = () => run(async () => {
-    const files = await open({ multiple: true, title: "Add model files", filters: MODEL_FILTERS });
+    const files = await open({ multiple: true, title: `Add model files to ${project.name}`, filters: MODEL_FILTERS });
     if (!files?.length) return;
     await actions.addFiles(project.id, files);
   });
@@ -266,9 +295,12 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
         </div>
         <div className="spacer" />
         {busy && <span className="muted small">Working… (large ZIPs take a moment)</span>}
-        <button onClick={addFolder} disabled={busy}>Add folder</button>
-        <button onClick={addZip} disabled={busy}>Import ZIP</button>
-        <button onClick={addFiles} disabled={busy}>Add files</button>
+        <div className="add-to-project" role="group" aria-label="Add to this project">
+          <span className="muted small">Add to this project:</span>
+          <button onClick={addFolder} disabled={busy} title={TIPS.addFolder}>Folder</button>
+          <button onClick={addZip} disabled={busy} title={TIPS.addZip}>ZIP</button>
+          <button onClick={addFiles} disabled={busy} title="Add single model files to this project, listed under Loose files">Files</button>
+        </div>
         <button onClick={rescan} disabled={busy || !project.folders.length} title="Pick up new files and flag missing ones">Rescan</button>
         {project.folders.length > 0 && (
           <button onClick={() => revealItemInDir(project.folders[0])} title={project.folders.join("\n")}>Open folder</button>
@@ -288,7 +320,7 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
             {update.publisher?.name ?? "The publisher"} changed these files on {new Date(update.fileLastModified ?? 0).toLocaleDateString()}.
             {driveThru.busy === update.orderProductId && <DownloadStatus progress={driveThru.progress} />}
           </span>
-          <button className="primary" disabled={driveThru.busy !== null} onClick={() => driveThru.update(update, project)}>Download update</button>
+          <button className="primary" title="Download only the files the publisher changed" disabled={driveThru.busy !== null} onClick={() => driveThru.update(update, project)}>Download update</button>
         </div>
       )}
       {newerVersions.size > 0 && (
@@ -312,7 +344,7 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
       {match && (
         <div className="banner">
           <span>This looks like “{match.name}” from your DriveThruRPG library. Link it to get updates here.</span>
-          <button className="primary" onClick={() => driveThru.link(match, project)}>Link</button>
+          <button className="primary" title="Get publisher updates for this project" onClick={() => driveThru.link(match, project)}>Link</button>
         </div>
       )}
       {missingFolders.map((f) => (
@@ -320,12 +352,12 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
           <span>
             This project's folder isn't on this computer: <span className="mono">{f}</span>
           </span>
-          <button onClick={() => locateFolder(store, f, notify)}>Locate…</button>
+          <button onClick={() => locateFolder(store, f, notify)} title="Show 3Devil where this folder is on this computer">Locate…</button>
         </div>
       ))}
 
       <div className="project-main">
-        <div className="project-content">
+        <div className={`project-content${tab !== "jobs" && project.parts.length ? " with-toolbar" : ""}`}>
           {tab === "jobs" ? (
             <JobsView store={store} project={project} onSend={send} onFocusPart={(id) => { setFocusId(id); }} onReview={onReview} />
           ) : project.parts.length === 0 ? (
@@ -333,124 +365,143 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
               <h3>No parts yet</h3>
               <p>Add a folder of STL/3MF/OBJ files (any ZIPs inside are unpacked automatically), or import a ZIP you downloaded from DriveThruRPG, MyMiniFactory, Printables, etc. Sub-folders become groups. Names like <code>wall_x4.stl</code> set the copy count automatically.</p>
               <div className="btn-row center">
-                <button className="primary" onClick={addFolder}>Add folder</button>
-                <button onClick={addZip}>Import ZIP</button>
+                <button className="primary" onClick={addFolder} title={TIPS.addFolder}>Add folder</button>
+                <button onClick={addZip} title={TIPS.addZip}>Add ZIP</button>
               </div>
             </div>
           ) : (
             <>
-              <div className="filters">
-                {(["all", "todo", ...(counts.printing ? ["printing"] : []), "queued", "done", ...(counts.updated ? ["updated"] : [])] as Filter[]).map((f) => (
-                  <button key={f} className={`chip${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>
-                    {{ all: "All", todo: "To print", printing: "Printing", queued: "Queued", done: "Done", updated: "Updated" }[f]} <span className="muted">{counts[f]}</span>
-                  </button>
-                ))}
-                {filter === "updated" && (
-                  <>
-                    {newerVersions.size > 0 && (
-                      <button
-                        className="link"
-                        title="Each new part takes over from the older part it looks like"
-                        onClick={() => newerVersions.forEach((part, oldId) => actions.replacePart(project.id, oldId, part.id))}
-                      >
-                        Use all newer versions
-                      </button>
-                    )}
-                    <button className="link" onClick={() => actions.markUpdatesSeen(project.id, active.map((p) => p.id))}>Mark all as seen</button>
-                  </>
-                )}
-                <input className="search" placeholder="Search parts…" value={query} onChange={(e) => setQuery(e.target.value)} />
-                <button className="link" onClick={() => setSelected(new Set(visible.map((p) => p.id)))}>Select all</button>
-              </div>
-              <div className="filters">
-                <button onClick={() => setCollapsed(groups.map(([g]) => g), false)} disabled={!groups.some(([g]) => collapsed.has(g))}>
-                  Expand all
-                </button>
-                <button onClick={() => setCollapsed(groups.map(([g]) => g), true)} disabled={groups.every(([g]) => collapsed.has(g))}>
-                  Collapse all
-                </button>
-                <div className="folder-anchor">
-                  <button className={showFolders ? "active" : ""} onClick={() => setShowFolders((v) => !v)}>
-                    Folders{hiddenFolders ? ` · ${hiddenFolders} hidden` : ""} ▾
-                  </button>
-                  {showFolders && (
-                    <FolderPanel
-                      parts={project.parts}
-                      hidden={hidden}
-                      onSetHidden={(g, h) => actions.setGroupsHidden(project.id, g, h)}
-                      onClose={() => setShowFolders(false)}
-                      notify={notify}
-                    />
+              <div className="parts-toolbar">
+                <div className="filters">
+                  {(["all", "todo", ...(counts.printing ? ["printing"] : []), "queued", "done", ...(counts.updated ? ["updated"] : [])] as Filter[]).map((f) => (
+                    <button key={f} className={`chip${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>
+                      {{ all: "All", todo: "To print", printing: "Printing", queued: "Queued", done: "Done", updated: "Updated" }[f]} <span className="muted">{counts[f]}</span>
+                    </button>
+                  ))}
+                  {filter === "updated" && (
+                    <>
+                      {newerVersions.size > 0 && (
+                        <button
+                          className="link"
+                          title="Each new part takes over from the older part it looks like"
+                          onClick={() => newerVersions.forEach((part, oldId) => actions.replacePart(project.id, oldId, part.id))}
+                        >
+                          Use all newer versions
+                        </button>
+                      )}
+                      <button className="link" onClick={() => actions.markUpdatesSeen(project.id, active.map((p) => p.id))}>Mark all as seen</button>
+                    </>
                   )}
+                  <input className="search" placeholder="Search parts…" value={query} onChange={(e) => setQuery(e.target.value)} />
+                  <button className="link" title="Select every part the filters are showing" onClick={() => setSelected(new Set(visible.map((p) => p.id)))}>Select all</button>
                 </div>
-              </div>
+                <div className="filters">
+                  <button onClick={() => setCollapsed(groups.map(([g]) => g), false)} disabled={!groups.some(([g]) => collapsed.has(g))}>
+                    Expand all
+                  </button>
+                  <button onClick={() => setCollapsed(groups.map(([g]) => g), true)} disabled={groups.every(([g]) => collapsed.has(g))}>
+                    Collapse all
+                  </button>
+                  <div className="folder-anchor">
+                    <button className={showFolders ? "active" : ""} title="Choose which folders count towards this project" onClick={() => setShowFolders((v) => !v)}>
+                      Folders{hiddenFolders ? ` · ${hiddenFolders} hidden` : ""} ▾
+                    </button>
+                    {showFolders && (
+                      <FolderPanel
+                        parts={project.parts}
+                        hidden={hidden}
+                        onSetHidden={(g, h) => actions.setGroupsHidden(project.id, g, h)}
+                        onRemove={setRemoving}
+                        onClose={() => setShowFolders(false)}
+                        notify={notify}
+                      />
+                    )}
+                  </div>
+                </div>
 
-              {groups.map(([group, parts]) => {
-                const done = parts.filter((p) => p.printed >= p.required).length;
-                const isCollapsed = collapsed.has(group);
-                return (
-                  <section key={group} className="group">
-                    <div className="group-head">
-                      <button className="group-toggle" onClick={() => setCollapsed([group], !isCollapsed)}>
-                        <span className="caret">{isCollapsed ? "▸" : "▾"}</span> {group}
-                      </button>
-                      <FolderButton path={folderOf(parts, group)} notify={notify} />
-                      <span className="muted">{done}/{parts.length} done</span>
-                      <div className="progress thin"><div style={{ width: `${(done / parts.length) * 100}%` }} /></div>
-                      <button
-                        className="link"
-                        onClick={() => setSelected((s) => new Set([...s, ...parts.filter((p) => p.printed < p.required).map((p) => p.id)]))}
-                      >
-                        Select unprinted
-                      </button>
-                      <button
-                        className="link muted-link"
-                        title="Hide this folder and leave it out of progress (manage under Folders)"
-                        onClick={() => {
-                          actions.setGroupsHidden(project.id, [group], true);
-                          setSelected((s) => new Set([...s].filter((id) => !parts.some((p) => p.id === id))));
-                        }}
-                      >
-                        Hide
-                      </button>
-                    </div>
-                    {!isCollapsed && (
-                      <div className="grid">
-                        {parts.map((p) => (
-                          <PartCard
-                            key={p.id}
-                            part={p}
-                            status={statusOf(p)}
-                            queued={queued.get(p.id) ?? 0}
-                            printing={printing.get(p.id) ?? 0}
-                            selected={selected.has(p.id)}
-                            focused={focusId === p.id}
-                            onToggle={toggle}
-                            onFocus={setFocusId}
-                            onAdjust={adjust}
-                            onDragOut={dragOut}
-                            onUnqueue={unqueue}
-                            isRevision={revisions.has(p.id)}
-                            hasNewerVersion={newerVersions.has(p.id)}
-                          />
-                        ))}
+              </div>
+              <div className="parts-list" style={{ "--group-name": `${nameLength}ch` } as CSSProperties}>
+                {groups.map(([group, parts]) => {
+                  const done = parts.filter((p) => p.printed >= p.required).length;
+                  const isCollapsed = collapsed.has(group);
+                  const name = groupLabel(group, sharedFolder);
+                  const leaf = name.lastIndexOf("/") + 1;
+                  return (
+                    <section key={group} className={`group${isCollapsed ? " collapsed" : ""}`}>
+                      <div className="group-head">
+                        <button className="group-toggle" title={group} onClick={() => setCollapsed([group], !isCollapsed)}>
+                          <span className="caret">{isCollapsed ? "▸" : "▾"}</span>
+                          <span className="group-path">{name.slice(0, leaf)}</span>
+                          <span className="group-leaf">{name.slice(leaf)}</span>
+                        </button>
+                        <span className="group-folder"><FolderButton path={folderOf(parts, group)} notify={notify} /></span>
+                        <span className="muted group-count">{done}/{parts.length} done</span>
+                        <div className="progress thin"><div style={{ width: `${(done / parts.length) * 100}%` }} /></div>
+                        <button
+                          className="link"
+                          title="Select every part in this folder that still needs printing"
+                          onClick={() => setSelected((s) => new Set([...s, ...parts.filter((p) => p.printed < p.required).map((p) => p.id)]))}
+                        >
+                          Select unprinted
+                        </button>
+                        <span className="group-links">
+                          <button
+                            className="link muted-link"
+                            title="Hide this folder and leave it out of progress (manage under Folders)"
+                            onClick={() => {
+                              actions.setGroupsHidden(project.id, [group], true);
+                              setSelected((s) => new Set([...s].filter((id) => !parts.some((p) => p.id === id))));
+                            }}
+                          >
+                            Hide
+                          </button>
+                          <button
+                            className="link muted-link"
+                            title="Take this folder and its sub-folders out of the project, and choose whether to move the files to the Trash"
+                            onClick={() => setRemoving(group)}
+                          >
+                            Remove
+                          </button>
+                        </span>
                       </div>
+                      {!isCollapsed && (
+                        <div className="grid">
+                          {parts.map((p) => (
+                            <PartCard
+                              key={p.id}
+                              part={p}
+                              status={statusOf(p)}
+                              queued={queued.get(p.id) ?? 0}
+                              printing={printing.get(p.id) ?? 0}
+                              selected={selected.has(p.id)}
+                              focused={focusId === p.id}
+                              onToggle={toggle}
+                              onFocus={setFocusId}
+                              onAdjust={adjust}
+                              onDragOut={dragOut}
+                              onUnqueue={unqueue}
+                              isRevision={revisions.has(p.id)}
+                              hasNewerVersion={newerVersions.has(p.id)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+                {groups.length === 0 && (
+                  <div className="empty">
+                    {active.length === 0 ? (
+                      <p>
+                        Every folder is hidden.{" "}
+                        <button className="link" onClick={() => actions.setGroupsHidden(project.id, [...hidden], false)}>Show all</button>
+                      </p>
+                    ) : (
+                      <p>No parts match.</p>
                     )}
-                  </section>
-                );
-              })}
-              {groups.length === 0 && (
-                <div className="empty">
-                  {active.length === 0 ? (
-                    <p>
-                      Every folder is hidden.{" "}
-                      <button className="link" onClick={() => actions.setGroupsHidden(project.id, [...hidden], false)}>Show all</button>
-                    </p>
-                  ) : (
-                    <p>No parts match.</p>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -474,11 +525,26 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
         )}
       </div>
 
+      {removing && (
+        <RemoveFolderDialog
+          project={project}
+          projects={state!.projects}
+          group={removing}
+          onClose={() => setRemoving(null)}
+          onRemoved={(trashed) => {
+            actions.removeFolder(project.id, removing);
+            setRemoving(null);
+            const name = removing.slice(removing.lastIndexOf("/") + 1);
+            notify(trashed ? `Removed “${name}” and moved it to the Trash.` : `Removed “${name}” from ${project.name}. Its files are still on disk.`);
+          }}
+        />
+      )}
+
       {sel.length > 0 && tab === "parts" && (
         <div className="selection-bar">
           <strong>{sel.length} selected</strong>
-          {defaultSlicer && <button className="primary" onClick={() => send(sel, defaultSlicer, true)}>Send to {SLICER_NAMES[defaultSlicer]}</button>}
-          {sendButtons.map((id) => <button key={id} onClick={() => send(sel, id, true)}>Send to {SLICER_NAMES[id]}</button>)}
+          {defaultSlicer && <button className="primary" title={sendTip(defaultSlicer)} onClick={() => send(sel, defaultSlicer, true)}>Send to {SLICER_NAMES[defaultSlicer]}</button>}
+          {sendButtons.map((id) => <button key={id} title={sendTip(id)} onClick={() => send(sel, id, true)}>Send to {SLICER_NAMES[id]}</button>)}
           <button
             onClick={() => {
               const job = actions.createJob(project.id, sel, null);
@@ -500,10 +566,11 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
               Remove from queue
             </button>
           )}
-          <button onClick={() => actions.updateParts(project.id, sel, (p) => { p.printed = p.required; })}>Mark printed</button>
+          <button title="Count all the needed copies of the selected parts as printed" onClick={() => actions.updateParts(project.id, sel, (p) => { p.printed = p.required; })}>Mark printed</button>
           <span className="qty-set">
             <input type="number" min={1} value={bulkQty} onChange={(e) => setBulkQty(e.target.value)} title="Copies needed" />
             <button
+              title="Set how many copies of each selected part you need"
               onClick={() => {
                 const n = parseInt(bulkQty, 10);
                 if (n > 0) actions.updateParts(project.id, sel, (p) => { p.required = n; });
@@ -514,6 +581,7 @@ export function ProjectView({ store, project, driveThru, running, notify, focusR
           </span>
           <button
             className="danger"
+            title="Take the selected parts out of the project. Their files stay on disk, and a Rescan adds them back if they're still in the folder"
             onClick={async () => {
               if (await confirm(`Remove ${sel.length} part(s) from this project? Files on disk are not touched.`, { title: "Remove parts", kind: "warning" })) {
                 actions.removeParts(project.id, sel);

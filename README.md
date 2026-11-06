@@ -57,7 +57,7 @@ Pick the package for your distribution. They need a 2024 or newer release (Ubunt
 
 ### Updates
 
-From version 0.1.2 on, 3Devil checks GitHub for new releases, downloads them in the background and shows **Restart to update** in the sidebar when one is ready. Nothing installs until you click it. On Linux, `.deb` and `.rpm` installs ask for your password to install the update. Turn automatic checks off, or check by hand, under **Settings → Updates**. Versions before 0.1.2 have to be updated by downloading the new installer once.
+From version 0.1.2 on, 3Devil checks GitHub for new releases, downloads them in the background and, for one found when the app starts, asks whether to install it now. Choose *Not now*, or let a later check find it, and **Restart to update** waits in the sidebar instead. Nothing installs until you click. On Linux, `.deb` and `.rpm` installs ask for your password to install the update. Turn automatic checks off, or check by hand, under **Settings → Updates**. Versions before 0.1.2 have to be updated by downloading the new installer once.
 
 ### Where your data lives
 
@@ -73,7 +73,7 @@ Uninstalling 3Devil leaves this folder in place. Your model files are never move
 
 ## Features
 
-- **Projects** — one per build; drag them in the sidebar to reorder. Add folders of models, import ZIP downloads (nested ZIPs unpacked), or add loose files. Sub-folders become groups.
+- **Projects** — one per build; drag them in the sidebar to reorder. *Add to this project* takes folders of models, ZIP downloads (nested ZIPs unpacked) or loose files; sub-folders become groups. Start a project from a ZIP with *+ New project*. *Remove* takes a folder out of a project, in its row or under *Folders*: Rescan leaves it out, and adding the folder again brings it back. Its files stay on disk unless you choose *Remove and move to Trash*, which moves the whole folder, plus any ZIP in the project it was unpacked from, to the system Trash. 3Devil won't do that for a folder another project uses, or for one outside the project's folders.
 - **Quantities** — each part has *needed / printed / failed* counts. Names like `wall_x4.stl` or `4x_barrel.stl` set the needed count automatically.
 - **STL / 3MF / OBJ rendering** — cached thumbnails for every part, plus an orbitable 3D viewer with dimensions. Large STLs (hundreds of MB) are simplified in the backend for display; slicers always get the full file.
 - **Slicer integration** — select parts and send them to Bambu Studio, PrusaSlicer or OrcaSlicer (*Settings → Slicers* picks which ones are offered); the files open in the slicer and are recorded as a queued **print job**. Tick several parts to send them to one slicer window together, or drag part cards (one, or all ticked ones) onto a slicer window that's already open to add them to its plate; drops within 30 minutes are recorded as one job. PrusaSlicer also takes later sends into the window that's already open (turn this off in *Settings*); Bambu Studio opens a new window for each send. Mark the job *Printed* (counts go up) or *Failed*, or take parts out of it (✕ on a part's yellow *queued* badge or in the job, or *Remove from queue* for a selection). Undo is supported.
@@ -89,7 +89,7 @@ Uninstalling 3Devil leaves this folder in place. Your model files are never move
 - **DriveThruRPG** — add a *Library App Key* (from your DriveThruRPG account settings) under *Settings*, then browse your purchases in *DriveThruRPG library* and turn any product into a project: its files are downloaded, unpacked and linked to the store page. The library is saved after the first load, so later it opens straight away and refreshes in the background. This uses the same unofficial API as DriveThruRPG's library app (endpoints courtesy of [drpg](https://github.com/glujan/drpg)), so it may break if they change it. Downloaded ZIPs work too: *New project → From ZIP*.
 - **Publisher updates** — 3Devil checks your DriveThruRPG library each time it starts. When a publisher changes a linked product, the project shows *Update* in the sidebar and a *Download update* banner. A project you made from a folder offers to link itself when its name or folder matches a product. Only files that differ from the store are downloaded, into the project's own folder. Parts are then tagged **Updated**, **New** or **Not in update** (the *Updated* filter lists them), and an updated part you've already printed says your copies are the old version. A new part with a revision mark in its name or folder (`Corner_Stairs_Rev_11526`, `Roof_Revised`) is matched to the part it seems to replace: both get a tag, and one click, or *Use all newer versions*, lets the new part take over, with the old one leaving the build's progress. Nothing is replaced until you say so, and any new part can be pointed at an older one by hand. Print counts are never changed, and old files the update dropped stay on disk; updated files replace the old ones. Files updated some other way work too: put the new ZIP in the project folder over the old one and press *Rescan*.
 
-Slicers are auto-detected (PATH, Flatpak, standard install locations), and the ones found are turned on the first time 3Devil starts. Change them in **Settings → Slicers**. **Settings → General** switches between dark (the default) and light, or follows your system.
+Slicers are auto-detected (PATH, Flatpak, standard install locations), and the ones found are turned on the first time 3Devil starts. Change them in **Settings → Slicers**, where PrusaSlicer and OrcaSlicer can add files to a window that's already open. OrcaSlicer's option is its own *Allow only one OrcaSlicer instance* preference, so close OrcaSlicer before changing it. **Settings → General** switches between dark (the default) and light, or follows your system.
 
 ## Building from source
 
@@ -157,6 +157,8 @@ Update files are signed so installed copies only accept genuine updates. The wor
 - `src-tauri/src/printer.rs` — Bambu Lab printer discovery and live status over the printer's local MQTT (TLS, port 8883).
 - `src-tauri/src/prusa.rs` — Prusa printer status over PrusaLink (HTTP, Digest login), converted to the same report Bambu printers send.
 - `src-tauri/src/klipper.rs` — Klipper printer status over Moonraker (HTTP, optional API key), converted to the same report.
+- `src-tauri/src/folders.rs` — moving a project's folder to the system Trash, with the checks that decide whether it may.
+- `src-tauri/src/orca.rs` — OrcaSlicer's single-window preference, changed in its own settings file.
 - `src-tauri/src/camera.rs` — live camera pictures: Bambu RTSP through `ffmpeg`, Bambu's JPEG stream on port 6000, and Klipper snapshot or MJPEG addresses.
 - `src/printers.ts` — printer connections, matching prints to parts, recording finished prints.
 - `src/store.ts` — app state and all project/part/job actions.

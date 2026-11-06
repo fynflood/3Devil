@@ -58,7 +58,12 @@ export function NewProjectDialog({ store, onClose, onCreated, notify }: Props) {
         <h2>New project</h2>
         <div className="segmented">
           {(["folder", "zip", "empty"] as Source[]).map((s) => (
-            <button key={s} className={source === s ? "active" : ""} onClick={() => { setSource(s); setPath(null); }}>
+            <button
+              key={s}
+              className={source === s ? "active" : ""}
+              title={{ folder: "Use a folder of model files. ZIPs inside are unpacked", zip: "Unpack a ZIP download and use its models", empty: "Start with no parts and add them later" }[s]}
+              onClick={() => { setSource(s); setPath(null); }}
+            >
               {{ folder: "From folder", zip: "From ZIP", empty: "Empty" }[s]}
             </button>
           ))}

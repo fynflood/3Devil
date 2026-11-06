@@ -49,10 +49,10 @@ export function JobsView({ store, project, onSend, onFocusPart, onReview }: Prop
                   Printer done — review
                 </button>
               )}
-              <button className="primary" onClick={() => actions.finishJob(project.id, job.id, "done")}>Printed ✓</button>
-              <button onClick={() => actions.finishJob(project.id, job.id, "failed")}>Failed</button>
+              <button className="primary" title="Count every copy in this job as printed" onClick={() => actions.finishJob(project.id, job.id, "done")}>Printed ✓</button>
+              <button title="Count every copy in this job as failed" onClick={() => actions.finishJob(project.id, job.id, "failed")}>Failed</button>
               {job.slicer && (
-                <button onClick={() => onSend(job.items.map((i) => i.partId), job.slicer!, false)}>Reopen in slicer</button>
+                <button title="Open these parts in the slicer again without adding a new job" onClick={() => onSend(job.items.map((i) => i.partId), job.slicer!, false)}>Reopen in slicer</button>
               )}
             </>
           ) : (

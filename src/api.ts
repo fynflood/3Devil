@@ -21,6 +21,15 @@ export interface DataLocation {
   pathMap: PathMapping[];
 }
 
+export interface TrashPlan {
+  files: number;
+  bytes: number;
+  /** ZIPs elsewhere in the project that unpack into the folder. */
+  zips: string[];
+  /** Why the folder can't be moved, if it can't. */
+  blocked: string | null;
+}
+
 export const api = {
   loadState: () => invoke<string>("load_state"),
   /** Returns the file's new stamp (see `stateStamp`). */
@@ -35,6 +44,12 @@ export const api = {
   addPathMapping: (missing: string, found: string) => invoke<PathMapping>("add_path_mapping", { missing, found }),
   removePathMapping: (from: string) => invoke<void>("remove_path_mapping", { from }),
   scanModels: (dir: string) => invoke<ModelFile[]>("scan_models", { dir }),
+  /** What moving `path` to the Trash would involve; `roots` are the project's folders. */
+  folderTrashPlan: (path: string, roots: string[]) => invoke<TrashPlan>("folder_trash_plan", { path, roots }),
+  trashFolder: (path: string, roots: string[]) => invoke<void>("trash_folder", { path, roots }),
+  /** OrcaSlicer's "only one instance" preference; null if it can't be read. */
+  orcaSingleInstance: (command: string[]) => invoke<boolean | null>("orca_single_instance", { command }),
+  setOrcaSingleInstance: (command: string[], on: boolean) => invoke<void>("set_orca_single_instance", { command, on }),
   readFileBytes: (path: string) => invoke<ArrayBuffer>("read_file_bytes", { path }),
   /** The model, with large STLs simplified to `resolution` grid cells on their longest side. */
   readModelPreview: (path: string, resolution: number) =>

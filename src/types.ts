@@ -186,6 +186,8 @@ export interface Project {
   hiddenGroups?: string[];
   /** Folder groups whose parts are folded away in the parts view. */
   collapsedGroups?: string[];
+  /** Folder groups taken out of the project, which a rescan leaves out. */
+  removedGroups?: string[];
   /** Set when the project was created from a DriveThruRPG library product. */
   driveThru?: DriveThruLink;
   createdAt: number;

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Part } from "../types";
 import { FolderButton, folderOf } from "./FolderButton";
 
@@ -6,6 +6,7 @@ interface Props {
   parts: Part[];
   hidden: Set<string>;
   onSetHidden: (groups: string[], hidden: boolean) => void;
+  onRemove: (group: string) => void;
   onClose: () => void;
   notify: (msg: string, kind?: "info" | "error") => void;
 }
@@ -50,12 +51,19 @@ function buildTree(parts: Part[]): Node[] {
 }
 
 /** Tree of the project's folders with checkboxes to include or hide each one. */
-export function FolderPanel({ parts, hidden, onSetHidden, onClose, notify }: Props) {
+export function FolderPanel({ parts, hidden, onSetHidden, onRemove, onClose, notify }: Props) {
   const [filter, setFilter] = useState("");
   const tree = useMemo(() => buildTree(parts), [parts]);
   const q = filter.trim().toLowerCase();
   const matches = (n: Node): boolean => n.path.toLowerCase().includes(q) || n.children.some(matches);
   const allGroups = useMemo(() => [...new Set(parts.map((p) => p.group))], [parts]);
+  const panel = useRef<HTMLDivElement>(null);
+
+  // The toolbar it opens from doesn't scroll, so the panel has to fit below it.
+  useLayoutEffect(() => {
+    const el = panel.current;
+    if (el) el.style.maxHeight = `${window.innerHeight - el.getBoundingClientRect().top - 12}px`;
+  }, []);
 
   const row = (node: Node, depth: number): React.ReactNode => {
     if (q && !matches(node)) return null;
@@ -76,6 +84,18 @@ export function FolderPanel({ parts, hidden, onSetHidden, onClose, notify }: Pro
           <span className="folder-name">{node.name}</span>
           <span className="muted small">{node.parts}</span>
           <FolderButton path={folderOf(parts, node.path)} notify={notify} />
+          <button
+            className="icon-btn folder-remove"
+            title="Remove this folder from the project"
+            aria-label={`Remove ${node.name} from the project`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onRemove(node.path);
+            }}
+          >
+            ✕
+          </button>
         </label>
         {node.children.map((c) => row(c, depth + 1))}
       </div>
@@ -83,7 +103,7 @@ export function FolderPanel({ parts, hidden, onSetHidden, onClose, notify }: Pro
   };
 
   return (
-    <div className="folder-panel" onClick={(e) => e.stopPropagation()}>
+    <div className="folder-panel" ref={panel} onClick={(e) => e.stopPropagation()}>
       <div className="folder-panel-head">
         <strong>Folders in this build</strong>
         <div className="spacer" />
@@ -91,7 +111,7 @@ export function FolderPanel({ parts, hidden, onSetHidden, onClose, notify }: Pro
         <button className="link" onClick={() => onSetHidden(allGroups, true)}>Hide all</button>
         <button className="icon-btn" onClick={onClose} title="Close">✕</button>
       </div>
-      <p className="muted small">Unticked folders are hidden and left out of progress totals. Nothing on disk changes.</p>
+      <p className="muted small">Unticked folders are hidden and left out of progress totals, with nothing changed on disk. ✕ removes one from the project.</p>
       <input
         className="folder-filter"
         type="search"

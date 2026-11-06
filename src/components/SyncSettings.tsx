@@ -113,7 +113,7 @@ export function SyncSettings({ store, notify }: { store: Store; notify: Notify }
           </p>
           <div className="btn-row">
             <button onClick={() => api.openFolder(loc.sharedDir!).catch((e) => notify(String(e), "error"))}>Open folder</button>
-            <button onClick={unshare} disabled={busy}>Stop sharing</button>
+            <button onClick={unshare} disabled={busy} title="Copy the projects back to this computer and keep them here only">Stop sharing</button>
           </div>
         </>
       ) : (
@@ -124,7 +124,7 @@ export function SyncSettings({ store, notify }: { store: Store; notify: Notify }
             separate on each computer.
           </p>
           <div className="btn-row">
-            <button onClick={share} disabled={busy || !loc}>Share using a folder…</button>
+            <button onClick={share} disabled={busy || !loc} title="Keep your projects in a folder other computers can reach">Share using a folder…</button>
           </div>
         </>
       )}
@@ -146,7 +146,7 @@ export function SyncSettings({ store, notify }: { store: Store; notify: Notify }
                 <div className="muted small mono">{f}</div>
               </div>
               <div className="spacer" />
-              <button onClick={() => locateFolder(store, f, notify).then(refresh)}>Locate…</button>
+              <button onClick={() => locateFolder(store, f, notify).then(refresh)} title="Show 3Devil where this folder is on this computer">Locate…</button>
             </div>
           ))}
           {loc?.pathMap.map((m) => (

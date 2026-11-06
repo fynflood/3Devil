@@ -170,6 +170,12 @@ function partsFromFiles(folder: string, files: ModelFile[], existing: Set<string
     }));
 }
 
+/** Whether a group is the given folder or sits somewhere below it. */
+export const inFolder = (group: string, folder: string) => group === folder || group.startsWith(`${folder}/`);
+
+const isRemoved = (project: Project | undefined, part: Part) =>
+  !!project?.removedGroups?.some((g) => inFolder(part.group, g));
+
 export interface ScanResult {
   added: number;
   missing: number;
@@ -319,13 +325,16 @@ export function useStore() {
      * Unpacks any new ZIPs in a folder, then adds model files not already in
      * the project.
      */
-    async addFolder(projectId: string, folder: string): Promise<ScanResult> {
+    /** With `restore`, folders inside it that were removed from the project come back. */
+    async addFolder(projectId: string, folder: string, restore = false): Promise<ScanResult> {
       const archives = await api.extractArchives(folder);
       const files = await api.scanModels(folder);
       const current = latest.current?.projects.find((p) => p.id === projectId);
-      const parts = partsFromFiles(folder, files, new Set(current?.parts.map((x) => x.path)));
+      const parts = partsFromFiles(folder, files, new Set(current?.parts.map((x) => x.path)))
+        .filter((x) => restore || !isRemoved(current, x));
       withProject(projectId, (p) => {
         if (!p.folders.includes(folder)) p.folders.push(folder);
+        if (restore) p.removedGroups = p.removedGroups?.filter((g) => !inFolder(g, basename(folder)));
         const have = new Set(p.parts.map((x) => x.path));
         p.parts.push(...parts.filter((x) => !have.has(x.path)));
       });
@@ -377,7 +386,7 @@ export function useStore() {
       const have = new Set(project.parts.map((x) => x.path));
       const newParts: Part[] = [];
       for (const [folder, files] of scans) {
-        const parts = partsFromFiles(folder, files, have);
+        const parts = partsFromFiles(folder, files, have).filter((x) => !isRemoved(project, x));
         parts.forEach((x) => have.add(x.path));
         newParts.push(...parts);
       }
@@ -490,6 +499,27 @@ export function useStore() {
         }
         for (const job of p.jobs) job.items = job.items.filter((it) => !ids.has(it.partId));
         p.jobs = p.jobs.filter((j) => j.items.length > 0);
+      });
+    },
+
+    /**
+     * Takes a folder and everything below it out of the project; files stay on
+     * disk. A folder that was added whole is forgotten. One inside a folder
+     * that's still scanned is remembered, so a rescan doesn't bring it back.
+     */
+    removeFolder(projectId: string, group: string) {
+      const project = latest.current?.projects.find((p) => p.id === projectId);
+      if (!project) return;
+      const gone = project.parts.filter((x) => inFolder(x.group, group));
+      const holds = (folder: string, part: Part) => part.path.startsWith(`${folder}/`) || part.path.startsWith(`${folder}\\`);
+      actions.removeParts(projectId, gone.map((x) => x.id));
+      withProject(projectId, (p) => {
+        const touched = p.folders.filter((f) => gone.some((x) => holds(f, x)));
+        const emptied = touched.filter((f) => !p.parts.some((x) => holds(f, x)));
+        p.folders = p.folders.filter((f) => !emptied.includes(f));
+        if (touched.length > emptied.length) p.removedGroups = [...new Set([...(p.removedGroups ?? []), group])];
+        p.hiddenGroups = p.hiddenGroups?.filter((g) => !inFolder(g, group));
+        p.collapsedGroups = p.collapsedGroups?.filter((g) => !inFolder(g, group));
       });
     },
 

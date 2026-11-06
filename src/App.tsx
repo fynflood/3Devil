@@ -13,6 +13,7 @@ import { applyTheme, DEFAULT_THEME } from "./theme";
 import { useUpdater } from "./updater";
 import { useDriveThru } from "./driveThru";
 import { UpdateCard } from "./components/UpdateCard";
+import { UpdatePrompt } from "./components/UpdatePrompt";
 import { useReorder } from "./useReorder";
 import { api } from "./api";
 import type { Store } from "./store";
@@ -48,8 +49,9 @@ export default function App() {
   const driveThru = useDriveThru(store, notify);
   const projectIds = useMemo(() => state?.projects.map((p) => p.id) ?? [], [state?.projects]);
   const reorder = useReorder(projectIds, actions.moveProject);
-  // Not in development: an update would try to replace the dev build.
-  const updater = useUpdater(!import.meta.env.DEV && !!state && (state.settings.autoUpdate ?? true));
+  // Not in development, where an update would try to replace the dev build. The browser mock can opt in.
+  const updatable = !import.meta.env.DEV || localStorage.getItem("3devil-mock-updates") !== null;
+  const updater = useUpdater(updatable && !!state && (state.settings.autoUpdate ?? true));
 
   useEffect(() => {
     if (error) notify(error, "error");
@@ -279,6 +281,7 @@ export default function App() {
           }}
         />
       )}
+      {!review && !creating && <UpdatePrompt updater={updater} />}
       {toast && <div className={`toast ${toast.kind}`} onClick={() => setToast(null)}>{toast.msg}</div>}
     </div>
   );
