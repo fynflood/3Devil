@@ -168,11 +168,11 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .group-toggle { display: flex; align-items: baseline; min-width: 0; background: none; border: none; font-weight: 600; padding: 2px 0; text-align: left; }
 .group-toggle .caret { flex: none; width: 12px; margin-right: 6px; text-align: center; transition: transform 0.18s ease; }
 .caret.shut { transform: rotate(-90deg); }
-/* Rows sized 0fr to 1fr let the height animate whatever the folder holds. The inner
-   padding keeps a selected card's outline from being clipped. */
-.group-body { display: grid; grid-template-rows: 1fr; }
-.group-body > div { min-height: 0; overflow: hidden; margin: -3px; padding: 3px; contain: layout paint; }
-.group-body.animated { animation: group-open 0.2s ease-out; }
+/* Rows sized 0fr to 1fr let the height animate whatever the folder holds, but only
+   while it moves: at rest a clipped box like this can keep an old height in WebKit and
+   cut off cards that wrap onto a new row. The padding spares a selected card's outline. */
+.group-body.moving { display: grid; grid-template-rows: 1fr; animation: group-open 0.2s ease-out; }
+.group-body.moving > div { min-height: 0; overflow: hidden; margin: -3px; padding: 3px; }
 .group-body.closing { animation: group-close 0.18s ease-in forwards; }
 @keyframes group-open { from { grid-template-rows: 0fr; opacity: 0; } }
 @keyframes group-close { to { grid-template-rows: 0fr; opacity: 0; } }
@@ -347,7 +347,9 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 @keyframes detail-open { from { transform: translateX(100%); } }
 @keyframes detail-close { to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
-  .detail-slide, .group-body.animated { animation: none; }
+  .detail-slide, .group-body.moving { animation: none; }
+  .group-body.moving { display: block; }
+  .group-body.moving > div { overflow: visible; margin: 0; padding: 0; }
   .detail-slide.closing, .group-body.closing { display: none; }
   .group, .group-toggle .caret { transition: none; }
 }

@@ -81,11 +81,11 @@ function useLingering(id: string | null) {
 /** A folder's parts. They're only mounted while open, and animate when toggled but not on first showing. */
 function GroupBody({ open, children }: { open: boolean; children: ReactNode }) {
   const [wasOpen, setWasOpen] = useState(open);
-  const [toggled, setToggled] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [closing, setClosing] = useState(false);
   if (wasOpen !== open) {
     setWasOpen(open);
-    setToggled(true);
+    setMoving(true);
     setClosing(!open);
   }
   useEffect(() => {
@@ -95,7 +95,10 @@ function GroupBody({ open, children }: { open: boolean; children: ReactNode }) {
   }, [closing]);
   if (!open && !closing) return null;
   return (
-    <div className={`group-body${toggled ? " animated" : ""}${open ? "" : " closing"}`}>
+    <div
+      className={`group-body${moving ? " moving" : ""}${open ? "" : " closing"}`}
+      onAnimationEnd={(e) => open && e.target === e.currentTarget && setMoving(false)}
+    >
       <div>{children}</div>
     </div>
   );
