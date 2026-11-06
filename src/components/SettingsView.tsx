@@ -3,10 +3,10 @@ import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, joinCommand, splitCommand } from "../api";
 import type { Store } from "../store";
-import { PrinterSettings } from "./PrinterSettings";
 import { DriveThruSettingsSection } from "./DriveThruSettings";
 import { SyncSettings } from "./SyncSettings";
-import { SLICER_NAMES, type SlicerId, type Theme } from "../types";
+import { enabledSlicers, mainSlicer } from "../slicers";
+import { SLICER_IDS, SLICER_NAMES, type SlicerId, type Theme } from "../types";
 import type { Updater } from "../updater";
 import { DEFAULT_THEME } from "../theme";
 
@@ -56,49 +56,68 @@ function UpdateSettings({ store, updater }: { store: Store; updater: Updater }) 
 }
 
 function SlicerRow({ store, id, notify }: Props & { id: SlicerId }) {
-  const saved = store.state!.settings.slicers[id];
+  const { settings } = store.state!;
+  const saved = settings.slicers[id] ?? null;
   const [text, setText] = useState(joinCommand(saved));
+  const on = enabledSlicers(settings).includes(id);
 
   const save = (cmd: string[] | null) => {
     store.actions.setSlicer(id, cmd);
     setText(joinCommand(cmd));
   };
 
+  const detect = async () => {
+    const found = (await api.detectSlicers())[id];
+    if (found) {
+      save(found);
+      notify(`Found ${SLICER_NAMES[id]}.`);
+    } else notify(`${SLICER_NAMES[id]} not found. Use Browse to pick it.`, "error");
+  };
+
   return (
-    <div className="setting">
-      <h4>{SLICER_NAMES[id]}</h4>
-      <div className="btn-row">
+    <div className="slicer-row">
+      <label className="inline">
         <input
-          className="grow mono"
-          placeholder="Not configured — click Detect or Browse"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={() => save(splitCommand(text))}
+          type="checkbox"
+          checked={on}
+          onChange={(e) => {
+            const others = enabledSlicers(settings).filter((s) => s !== id);
+            store.actions.setEnabledSlicers(e.target.checked ? [...others, id] : others);
+            if (e.target.checked && !saved?.length) detect();
+          }}
         />
-        <button
-          onClick={async () => {
-            const found = (await api.detectSlicers())[id];
-            if (found) {
-              save(found);
-              notify(`Found ${SLICER_NAMES[id]}.`);
-            } else notify(`${SLICER_NAMES[id]} not found. Use Browse to pick it.`, "error");
-          }}
-        >
-          Detect
-        </button>
-        <button
-          onClick={async () => {
-            const p = await open({ title: `Locate ${SLICER_NAMES[id]}` });
-            if (typeof p === "string") save([p]);
-          }}
-        >
-          Browse
-        </button>
-      </div>
-      <p className="muted small">
-        Program followed by any fixed arguments; model files are appended. Flatpak example:{" "}
-        <code>flatpak run {id === "bambu" ? "com.bambulab.BambuStudio" : "com.prusa3d.PrusaSlicer"}</code>
-      </p>
+        {SLICER_NAMES[id]}
+      </label>
+      {on && (
+        <div className="btn-row">
+          <input
+            className="grow mono"
+            placeholder="Not set: click Detect or Browse"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={() => save(splitCommand(text))}
+          />
+          <button onClick={detect}>Detect</button>
+          <button
+            onClick={async () => {
+              const p = await open({ title: `Locate ${SLICER_NAMES[id]}` });
+              if (typeof p === "string") save([p]);
+            }}
+          >
+            Browse
+          </button>
+        </div>
+      )}
+      {on && id === "prusa" && (
+        <label className="inline small slicer-option">
+          <input
+            type="checkbox"
+            checked={settings.reuseSlicerWindow ?? true}
+            onChange={(e) => store.actions.setReuseSlicerWindow(e.target.checked)}
+          />
+          Add to the window 3Devil opened instead of opening a new one
+        </label>
+      )}
     </div>
   );
 }
@@ -109,59 +128,75 @@ const THEMES: [Theme, string][] = [
   ["dark", "Dark"],
 ];
 
-export function SettingsView({ store, notify, updater }: Props & { updater: Updater }) {
+export type SettingsTab = "general" | "slicers" | "drivethru" | "sync";
+
+const TABS: [SettingsTab, string][] = [
+  ["general", "General"],
+  ["slicers", "Slicers"],
+  ["drivethru", "DriveThruRPG"],
+  ["sync", "Sync"],
+];
+
+export function SettingsView({ store, notify, updater, tab, onTab }: Props & { updater: Updater; tab: SettingsTab; onTab: (tab: SettingsTab) => void }) {
   const { settings } = store.state!;
+  const slicers = enabledSlicers(settings);
   return (
     <div className="settings">
       <h2>Settings</h2>
-      <section>
-        <h3>Appearance</h3>
-        <div className="filters" role="radiogroup" aria-label="Theme">
-          {THEMES.map(([id, label]) => (
-            <button
-              key={id}
-              role="radio"
-              aria-checked={(settings.theme ?? DEFAULT_THEME) === id}
-              className={`chip${(settings.theme ?? DEFAULT_THEME) === id ? " active" : ""}`}
-              onClick={() => store.actions.setTheme(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <p className="muted small">System follows your computer's light or dark setting.</p>
-      </section>
-      <section>
-        <h3>Slicers</h3>
-        {(Object.keys(SLICER_NAMES) as SlicerId[]).map((id) => (
-          <SlicerRow key={id} id={id} store={store} notify={notify} />
+      <div className="filters settings-tabs" role="tablist">
+        {TABS.map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={tab === id} className={`chip${tab === id ? " active" : ""}`} onClick={() => onTab(id)}>
+            {label}
+          </button>
         ))}
-        <label className="inline">
-          Default slicer for “Send to”
-          <select value={settings.defaultSlicer} onChange={(e) => store.actions.setDefaultSlicer(e.target.value as SlicerId)}>
-            {(Object.keys(SLICER_NAMES) as SlicerId[]).map((id) => (
-              <option key={id} value={id}>{SLICER_NAMES[id]}</option>
-            ))}
-          </select>
-        </label>
-        <label className="inline">
-          <input
-            type="checkbox"
-            checked={settings.reuseSlicerWindow ?? true}
-            onChange={(e) => store.actions.setReuseSlicerWindow(e.target.checked)}
-          />
-          Add files to the PrusaSlicer window that's already open
-        </label>
-        <p className="muted small">
-          Each send goes into the same PrusaSlicer window instead of opening a new one. A window you opened yourself (not
-          from 3Devil) may not pick them up; close it and the next send opens one that will. Bambu Studio can't do this, so
-          to put several parts in one Bambu window, tick them all and send them together.
-        </p>
-      </section>
-      <PrinterSettings store={store} notify={notify} />
-      <DriveThruSettingsSection store={store} />
-      <SyncSettings store={store} notify={notify} />
-      <UpdateSettings store={store} updater={updater} />
+      </div>
+      {tab === "general" && (
+        <>
+          <section>
+            <h3>Appearance</h3>
+            <div className="filters" role="radiogroup" aria-label="Theme">
+              {THEMES.map(([id, label]) => (
+                <button
+                  key={id}
+                  role="radio"
+                  aria-checked={(settings.theme ?? DEFAULT_THEME) === id}
+                  className={`chip${(settings.theme ?? DEFAULT_THEME) === id ? " active" : ""}`}
+                  onClick={() => store.actions.setTheme(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="muted small">System follows your computer's light or dark setting.</p>
+          </section>
+          <UpdateSettings store={store} updater={updater} />
+        </>
+      )}
+      {tab === "slicers" && (
+        <section>
+          <h3>Slicers</h3>
+          <p className="muted small">Only the slicers ticked here are offered around the app.</p>
+          {SLICER_IDS.map((id) => (
+            <SlicerRow key={id} id={id} store={store} notify={notify} />
+          ))}
+          <p className="muted small">
+            Each one is a program followed by any fixed arguments; model files are added at the end. For a Flatpak, use{" "}
+            <code>flatpak run</code> and its app id.
+          </p>
+          {slicers.length > 1 && (
+            <label className="inline">
+              Default slicer for “Send to”
+              <select value={mainSlicer(settings) ?? ""} onChange={(e) => store.actions.setDefaultSlicer(e.target.value as SlicerId)}>
+                {slicers.map((id) => (
+                  <option key={id} value={id}>{SLICER_NAMES[id]}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </section>
+      )}
+      {tab === "drivethru" && <DriveThruSettingsSection store={store} />}
+      {tab === "sync" && <SyncSettings store={store} notify={notify} />}
     </div>
   );
 }

@@ -6,6 +6,8 @@ interface Props {
   part: Part;
   status: PartStatus;
   queued: number;
+  /** Of the queued copies, how many are on a printer right now. */
+  printing: number;
   selected: boolean;
   focused: boolean;
   onToggle: (id: string, range: boolean) => void;
@@ -35,7 +37,7 @@ function useVisible<T extends Element>() {
 }
 
 export const PartCard = memo(function PartCard({
-  part, status, queued, selected, focused, onToggle, onFocus, onAdjust, onDragOut, onUnqueue, isRevision, hasNewerVersion,
+  part, status, queued, printing, selected, focused, onToggle, onFocus, onAdjust, onDragOut, onUnqueue, isRevision, hasNewerVersion,
 }: Props) {
   const [ref, visible] = useVisible<HTMLDivElement>();
   const imgRef = useRef<HTMLImageElement>(null);
@@ -73,7 +75,12 @@ export const PartCard = memo(function PartCard({
         ) : (
           <span className="thumb-spinner" />
         )}
-        {queued > 0 && status !== "done" && (
+        {status === "printing" ? (
+          <>
+            <span className="badge printing">{printing > 1 ? `${printing} printing` : "Printing"}</span>
+            {queued > printing && <span className="badge queued stacked">{queued - printing} queued</span>}
+          </>
+        ) : queued > 0 && status !== "done" && (
           <span className="badge queued">
             {queued} queued
             <button

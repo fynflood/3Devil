@@ -14,6 +14,19 @@ function firstPartName(): string {
   }
 }
 
+/** A camera picture with a changing mark, so a moving feed can be told from a stuck one. */
+async function mockCameraFrame(): Promise<ArrayBuffer> {
+  const canvas = document.createElement("canvas");
+  [canvas.width, canvas.height] = [640, 360];
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#223";
+  ctx.fillRect(0, 0, 640, 360);
+  ctx.fillStyle = "#e2683c";
+  ctx.fillRect((Date.now() / 10) % 640, 160, 40, 40);
+  const blob = await new Promise<Blob>((done) => canvas.toBlob((b) => done(b!), "image/jpeg"));
+  return blob.arrayBuffer();
+}
+
 /** Simulates a printer running a job for about 40 seconds, then finishing. */
 function simulatePrinter(id: string) {
   const start = Math.floor(Date.now() / 1000);
@@ -39,6 +52,17 @@ function simulatePrinter(id: string) {
         bed_temper: 55,
         bed_target_temper: 55,
         chamber_temper: 31,
+        spd_lvl: 2,
+        spd_mag: 100,
+        wifi_signal: "-52dBm",
+        cooling_fan_speed: "15",
+        big_fan1_speed: "11",
+        big_fan2_speed: "8",
+        heatbreak_fan_speed: "15",
+        nozzle_diameter: "0.4",
+        ipcam: { rtsp_url: "rtsps://192.168.1.50:322/streaming/live/1" },
+        ams: { tray_now: "254", ams: [{ id: "0", tray: [{ id: "0", tray_type: "PETG", tray_color: "D02B2BFF", remain: 62 }, { id: "1" }] }] },
+        vt_tray: { id: "255", tray_type: "PLA", tray_color: "161616FF", remain: 0 },
       },
     });
     if (done) clearInterval(timer);
@@ -205,7 +229,7 @@ mockIPC(async (cmd, args) => {
     case "extract_archives":
       return { extracted: [], failed: [], changed: [], removed: [], ...(window as unknown as { __mockArchiveChanges?: object }).__mockArchiveChanges };
     case "detect_slicers":
-      return { bambu: ["bambu-studio"], prusa: ["prusa-slicer"] };
+      return { bambu: ["bambu-studio"], prusa: null, orca: null };
     case "open_in_slicer":
       console.info("[mock] open_in_slicer", a.command, a.files, a.singleInstance);
       return null;
@@ -231,6 +255,21 @@ mockIPC(async (cmd, args) => {
       return { ip: String(a.host).trim(), serial: "CZPX4224X017XK00042", model: "Prusa MK4S" };
     case "prusa_connect":
       simulatePrusa(a.id as string, a.password as string);
+      return null;
+    case "klipper_probe":
+      if (a.apiKey === "wrong") throw "Moonraker rejected that API key. Find it in Fluidd or Mainsail's settings.";
+      return { ip: String(a.host).includes(":") ? String(a.host).trim() : `${String(a.host).trim()}:7125`, serial: "", model: "voron" };
+    case "klipper_scan":
+      return [{ ip: "192.168.1.70:7125", serial: "", model: "voron" }];
+    case "klipper_connect":
+      simulatePrinter(a.id as string);
+      return null;
+    case "camera_start":
+      if ((window as unknown as { __mockCameraError?: string }).__mockCameraError) throw (window as unknown as { __mockCameraError: string }).__mockCameraError;
+      return { rotation: 0, flipHorizontal: false, flipVertical: false };
+    case "camera_frame":
+      return mockCameraFrame();
+    case "camera_stop":
       return null;
     case "drivethru_library":
       return mockLibrary(a.key as string);

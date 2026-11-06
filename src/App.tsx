@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { projectProgress, useStore } from "./store";
-import { usePrinters } from "./printers";
+import { runningJobs, usePrinters } from "./printers";
 import { ProjectView } from "./components/ProjectView";
-import { SettingsView } from "./components/SettingsView";
+import { SettingsView, type SettingsTab } from "./components/SettingsView";
+import { PrintersView } from "./components/PrintersView";
 import { NewProjectDialog } from "./components/NewProjectDialog";
 import { PrinterCard } from "./components/PrinterCard";
 import { ReviewPrompt } from "./components/ReviewPrompt";
@@ -15,7 +16,7 @@ import { UpdateCard } from "./components/UpdateCard";
 import { useReorder } from "./useReorder";
 import { api } from "./api";
 import type { Store } from "./store";
-import type { Part, Project } from "./types";
+import { SLICER_IDS, type Part, type Project } from "./types";
 import "./App.css";
 
 type Toast = { msg: string; kind: "info" | "error" };
@@ -26,7 +27,8 @@ const MAX_RESULTS = 60;
 export default function App() {
   const store = useStore();
   const { state, error, actions } = store;
-  const [view, setView] = useState<string | "settings" | "drivethru" | null>(null);
+  const [view, setView] = useState<string | "settings" | "printers" | "drivethru" | null>(null);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
   const [search, setSearch] = useState("");
@@ -42,6 +44,7 @@ export default function App() {
   }, []);
 
   const statuses = usePrinters(store, notify);
+  const running = useMemo(() => runningJobs(state?.projects ?? [], statuses), [state?.projects, statuses]);
   const driveThru = useDriveThru(store, notify);
   const projectIds = useMemo(() => state?.projects.map((p) => p.id) ?? [], [state?.projects]);
   const reorder = useReorder(projectIds, actions.moveProject);
@@ -65,6 +68,19 @@ export default function App() {
   useEffect(() => {
     if (state && view === null && state.projects.length) setView(state.projects[0].id);
   }, [state, view]);
+
+  // Offer the slicers that are installed, rather than every slicer there is.
+  useEffect(() => {
+    if (!state || state.settings.enabledSlicers) return;
+    api
+      .detectSlicers()
+      .then((found) => {
+        const ids = SLICER_IDS.filter((id) => found[id] || state.settings.slicers[id]?.length);
+        if (ids.length) actions.setEnabledSlicers(ids);
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!state]);
 
   const results = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -95,7 +111,7 @@ export default function App() {
     .find(({ job }) => job.status === "queued" && job.printer?.awaitingReview && !deferred.has(job.id));
 
   const project = state.projects.find((p) => p.id === view) ?? null;
-  const printers = state.settings.printers ?? [];
+  const printers = (state.settings.printers ?? []).filter((p) => !p.disabled);
 
   return (
     <div className="app">
@@ -200,18 +216,24 @@ export default function App() {
         <button className={`wide${view === "drivethru" ? " active" : ""}`} onClick={() => setView("drivethru")}>
           DriveThruRPG library{driveThru.updates.size ? ` · ${driveThru.updates.size} update${driveThru.updates.size === 1 ? "" : "s"}` : ""}
         </button>
+        <button className={`wide${view === "printers" ? " active" : ""}`} onClick={() => setView("printers")}>Printers</button>
         <button className={`wide${view === "settings" ? " active" : ""}`} onClick={() => setView("settings")}>Settings</button>
       </nav>
 
       <main className="main">
         {view === "settings" ? (
-          <SettingsView store={store} notify={notify} updater={updater} />
+          <SettingsView store={store} notify={notify} updater={updater} tab={settingsTab} onTab={setSettingsTab} />
+        ) : view === "printers" ? (
+          <PrintersView store={store} statuses={statuses} onOpenPart={openPart} notify={notify} />
         ) : view === "drivethru" ? (
           <DriveThruView
             store={store}
             driveThru={driveThru}
             onOpenProject={(id) => { setView(id); setFocusRequest(null); }}
-            onOpenSettings={() => setView("settings")}
+            onOpenSettings={() => {
+              setSettingsTab("drivethru");
+              setView("settings");
+            }}
           />
         ) : project ? (
           <ProjectView
@@ -219,6 +241,7 @@ export default function App() {
             store={store}
             project={project}
             driveThru={driveThru}
+            running={running}
             notify={notify}
             focusRequest={focusRequest}
             onReview={(jobId) => setDeferred((d) => new Set([...d].filter((id) => id !== jobId)))}

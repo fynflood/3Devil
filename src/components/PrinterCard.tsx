@@ -1,5 +1,5 @@
 import { formatDuration } from "../api";
-import { ACTIVE_STATES, STATE_LABELS, linkedJob, matchPrint } from "../printers";
+import { ACTIVE_STATES, chamberTemp, currentPart, statusPill } from "../printers";
 import type { PrinterConfig, PrinterStatus, Project } from "../types";
 
 interface Props {
@@ -18,32 +18,16 @@ export function PrinterCard({ printer, status, projects, onOpenPart, onReview }:
   const r = status?.print ?? {};
   const state = r.gcode_state ?? "";
   const active = ACTIVE_STATES.has(state);
-  const linked = status ? linkedJob(projects, printer.id, r) : null;
-  const match = linked
-    ? (() => {
-        const partId = linked.job.items[0]?.partId;
-        const part = linked.project.parts.find((p) => p.id === partId);
-        return part ? { project: linked.project, part } : null;
-      })()
-    : active
-      ? matchPrint(projects, r)
-      : null;
+  const { linked, match } = status ? currentPart(projects, printer.id, r) : { linked: null, match: null };
 
-  let pill = "Connecting…";
-  let pillClass = "";
-  if (status?.error) {
-    pill = "Offline";
-    pillClass = "pill-failed";
-  } else if (status?.connected && state) {
-    pill = STATE_LABELS[state] ?? state;
-    pillClass = active ? "pill-active" : state === "FAILED" ? "pill-failed" : state === "FINISH" ? "pill-done" : "";
-  }
+  const pill = statusPill(status);
+  const chamber = chamberTemp(r);
 
   return (
     <div className="printer-card" title={`${printer.model} · ${printer.ip}`}>
       <div className="printer-head">
         <span className="printer-name">{printer.name}</span>
-        <span className={`pill ${pillClass}`}>{pill}</span>
+        <span className={`pill ${pill.className}`}>{pill.label}</span>
       </div>
       {status?.error && <div className="small error-text">{status.error}</div>}
       {!status?.error && r.subtask_name && (state === "FINISH" || state === "FAILED" || active) && (
@@ -74,7 +58,7 @@ export function PrinterCard({ printer, status, projects, onOpenPart, onReview }:
         <div className="small muted printer-stats">
           <span title="Nozzle">🔥 {temp(r.nozzle_temper, r.nozzle_target_temper)}</span>
           <span title="Bed">▭ {temp(r.bed_temper, r.bed_target_temper)}</span>
-          {r.chamber_temper ? <span title="Chamber">☐ {Math.round(r.chamber_temper)}°</span> : null}
+          {chamber ? <span title="Chamber">☐ {Math.round(chamber)}°</span> : null}
         </div>
       )}
     </div>

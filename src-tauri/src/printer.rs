@@ -13,6 +13,7 @@ use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS, TlsConfiguration, Tr
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -63,7 +64,7 @@ impl ServerCertVerifier for AcceptPrinterCert {
     }
 }
 
-fn tls_config() -> rustls::ClientConfig {
+pub(crate) fn tls_config() -> rustls::ClientConfig {
     let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
     rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_safe_default_protocol_versions()
@@ -133,10 +134,12 @@ pub async fn printer_probe(ip: String) -> Result<FoundPrinter, String> {
     Ok(FoundPrinter { ip: addr.to_string(), model: model_from_serial(&serial), serial })
 }
 
-/// Scans the local /24 networks for Bambu printers. Used instead of SSDP
-/// discovery because desktop firewalls usually drop the printers' broadcasts.
-#[tauri::command]
-pub async fn printer_scan() -> Vec<FoundPrinter> {
+/// Runs `probe` on every address of the local /24 networks.
+pub(crate) async fn scan_network<F, Fut>(probe: F) -> Vec<FoundPrinter>
+where
+    F: Fn(Ipv4Addr) -> Fut,
+    Fut: Future<Output = Option<FoundPrinter>> + Send + 'static,
+{
     let mut candidates = Vec::new();
     for iface in if_addrs::get_if_addrs().unwrap_or_default() {
         if iface.is_loopback() {
@@ -155,18 +158,9 @@ pub async fn printer_scan() -> Vec<FoundPrinter> {
     candidates.sort();
     candidates.dedup();
 
-    let probes = candidates.into_iter().map(|ip| async move {
-        let addr = SocketAddr::new(IpAddr::V4(ip), PORT);
-        let open = matches!(timeout(Duration::from_millis(700), TcpStream::connect(addr)).await, Ok(Ok(_)));
-        if !open {
-            return None;
-        }
-        let serial = read_serial(IpAddr::V4(ip)).await?;
-        Some(FoundPrinter { ip: ip.to_string(), model: model_from_serial(&serial), serial })
-    });
     // Probe in batches to stay well under file-descriptor limits.
     let mut found = Vec::new();
-    let probes: Vec<_> = probes.collect();
+    let probes: Vec<_> = candidates.into_iter().map(probe).collect();
     let mut iter = probes.into_iter();
     loop {
         let batch: Vec<_> = iter.by_ref().take(128).collect();
@@ -183,7 +177,23 @@ pub async fn printer_scan() -> Vec<FoundPrinter> {
     found
 }
 
-/// Running status connections (Bambu and Prusa), by printer id.
+/// Scans for Bambu printers. Used instead of SSDP discovery because desktop
+/// firewalls usually drop the printers' broadcasts.
+#[tauri::command]
+pub async fn printer_scan() -> Vec<FoundPrinter> {
+    scan_network(|ip| async move {
+        let addr = SocketAddr::new(IpAddr::V4(ip), PORT);
+        let open = matches!(timeout(Duration::from_millis(700), TcpStream::connect(addr)).await, Ok(Ok(_)));
+        if !open {
+            return None;
+        }
+        let serial = read_serial(IpAddr::V4(ip)).await?;
+        Some(FoundPrinter { ip: ip.to_string(), model: model_from_serial(&serial), serial })
+    })
+    .await
+}
+
+/// Running status connections, by printer id.
 #[derive(Default)]
 pub struct Printers(Mutex<HashMap<String, JoinHandle<()>>>);
 
@@ -204,7 +214,7 @@ struct StatusEvent<'a> {
     connected: bool,
     error: Option<String>,
     /// The printer's merged `print` report (P1/A1 models only send changes).
-    /// Prusa printers send the same fields, converted from PrusaLink.
+    /// Other printers send the same fields, converted from their own APIs.
     print: &'a Value,
 }
 

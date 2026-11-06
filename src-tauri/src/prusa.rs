@@ -13,14 +13,14 @@ use tauri::{AppHandle, State};
 
 const POLL: Duration = Duration::from_secs(3);
 
-enum Failure {
+pub(crate) enum Failure {
     /// Wrong username/password; retrying soon won't help.
     Auth(String),
     Network(String),
 }
 
 impl Failure {
-    fn message(self) -> String {
+    pub(crate) fn message(self) -> String {
         match self {
             Failure::Auth(m) | Failure::Network(m) => m,
         }
@@ -109,7 +109,7 @@ impl Link {
 }
 
 /// Accepts an IP address or host name, with or without `http://`.
-fn clean_host(host: &str) -> Result<String, String> {
+pub(crate) fn clean_host(host: &str) -> Result<String, String> {
     let h = host.trim();
     let h = h.strip_prefix("http://").or_else(|| h.strip_prefix("https://")).unwrap_or(h);
     let h = h.trim_end_matches('/');
@@ -216,7 +216,7 @@ fn report(status: &Status, run: Option<&Run>) -> Value {
     r
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 

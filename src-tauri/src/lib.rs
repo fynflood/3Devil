@@ -9,6 +9,8 @@ use std::time::SystemTime;
 mod drivethru;
 mod preview;
 mod printer;
+mod camera;
+mod klipper;
 mod prusa;
 mod storage;
 
@@ -331,9 +333,10 @@ fn collect_zips(dir: &Path, out: &mut Vec<PathBuf>) {
 struct DetectedSlicers {
     bambu: Option<Vec<String>>,
     prusa: Option<Vec<String>>,
+    orca: Option<Vec<String>>,
 }
 
-fn which(bin: &str) -> Option<String> {
+pub(crate) fn which(bin: &str) -> Option<String> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
         for name in [bin.to_string(), format!("{bin}.exe")] {
@@ -350,7 +353,7 @@ fn which(bin: &str) -> Option<String> {
 /// environment points at the libraries bundled with 3Devil (`LD_LIBRARY_PATH`,
 /// GTK and GIO module paths, ...); system programs such as `flatpak` crash
 /// loading those, so they get the environment without them.
-fn external(program: &str) -> Command {
+pub(crate) fn external(program: &str) -> Command {
     let mut cmd = Command::new(program);
     if let Some(appdir) = std::env::var_os("APPDIR").filter(|d| !d.is_empty()) {
         for (key, value) in outside_appimage(Path::new(&appdir), std::env::vars_os()) {
@@ -403,7 +406,7 @@ fn first_existing(paths: &[&str]) -> Option<Vec<String>> {
         .map(|p| vec![p.to_string()])
 }
 
-/// Best-effort lookup of Bambu Studio and PrusaSlicer on this machine.
+/// Best-effort lookup of the supported slicers on this machine.
 #[tauri::command]
 fn detect_slicers() -> DetectedSlicers {
     let bambu = if cfg!(target_os = "windows") {
@@ -433,7 +436,17 @@ fn detect_slicers() -> DetectedSlicers {
             .map(|p| vec![p])
             .or_else(|| flatpak_app("com.prusa3d.PrusaSlicer"))
     };
-    DetectedSlicers { bambu, prusa }
+    let orca = if cfg!(target_os = "windows") {
+        first_existing(&[r"C:\Program Files\OrcaSlicer\orca-slicer.exe"])
+    } else if cfg!(target_os = "macos") {
+        first_existing(&["/Applications/OrcaSlicer.app/Contents/MacOS/OrcaSlicer"])
+    } else {
+        which("orca-slicer")
+            .or_else(|| which("OrcaSlicer"))
+            .map(|p| vec![p])
+            .or_else(|| flatpak_app("com.orcaslicer.OrcaSlicer"))
+    };
+    DetectedSlicers { bambu, prusa, orca }
 }
 
 /// Launches a slicer with the given model files loaded. `command` is the
@@ -476,6 +489,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(printer::Printers::default())
+        .manage(camera::Cameras::default())
         .manage(drivethru::DriveThru::default())
         .invoke_handler(tauri::generate_handler![
             storage::load_state,
@@ -501,6 +515,12 @@ pub fn run() {
             printer::printer_disconnect,
             prusa::prusa_probe,
             prusa::prusa_connect,
+            klipper::klipper_probe,
+            klipper::klipper_scan,
+            klipper::klipper_connect,
+            camera::camera_start,
+            camera::camera_frame,
+            camera::camera_stop,
             drivethru::drivethru_library,
             drivethru::drivethru_cached_library,
             drivethru::drivethru_product_dir,

@@ -1,6 +1,18 @@
 import { api } from "./api";
 import type { Store } from "./store";
-import { SLICER_NAMES, type Project, type SlicerId } from "./types";
+import { SLICER_IDS, SLICER_NAMES, type Project, type Settings, type SlicerId } from "./types";
+
+/** The slicers offered around the app. */
+export function enabledSlicers(settings: Settings): SlicerId[] {
+  const on = settings.enabledSlicers ?? ["bambu", "prusa"];
+  return SLICER_IDS.filter((id) => on.includes(id));
+}
+
+/** The slicer "Send to" uses: the chosen one, unless it's been turned off. */
+export function mainSlicer(settings: Settings): SlicerId | null {
+  const on = enabledSlicers(settings);
+  return on.includes(settings.defaultSlicer) ? settings.defaultSlicer : (on[0] ?? null);
+}
 
 /** Returns the configured command for a slicer, auto-detecting (and saving) it if unset. */
 export async function resolveSlicer(store: Store, id: SlicerId): Promise<string[]> {
@@ -29,7 +41,8 @@ export async function sendToSlicer(
     .map((p) => p!.path);
   if (!files.length) throw new Error("None of the selected files exist on disk.");
   // Only PrusaSlicer takes --single-instance on its command line; Bambu Studio
-  // rejects it and quits, and reads the same option from its own preferences.
+  // and OrcaSlicer reject it and quit, and read the same option from their own
+  // preferences.
   const reuse = id === "prusa" && (store.state?.settings.reuseSlicerWindow ?? true);
   await api.openInSlicer(command, files, reuse);
   return recordJob ? store.actions.createJob(project.id, partIds, id) : null;

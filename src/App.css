@@ -178,6 +178,7 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .part-card.selected { box-shadow: 0 0 0 2px var(--accent); }
 .part-card.status-done { border-left: 3px solid var(--ok); }
 .part-card.status-queued { border-left: 3px solid var(--warn); }
+.part-card.status-printing { border-left: 3px solid var(--accent); }
 .part-card.missing { opacity: 0.6; }
 .part-check { position: absolute; top: 10px; left: 10px; z-index: 1; }
 .part-check input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
@@ -190,6 +191,8 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .badge { position: absolute; top: 6px; right: 6px; font-size: 11px; padding: 1px 7px; border-radius: 99px; font-weight: 600; }
 .badge.done { background: var(--ok); color: #fff; }
 .badge.queued { background: var(--warn); color: #222; display: inline-flex; align-items: center; gap: 4px; padding-right: 3px; }
+.badge.printing { background: var(--accent); color: var(--accent-text); }
+.badge.stacked { top: 28px; padding-right: 7px; }
 .badge-x { background: none; border: none; padding: 0; width: 15px; height: 15px; border-radius: 50%; font-size: 9px; line-height: 1; color: inherit; display: inline-grid; place-items: center; }
 .badge-x:hover:not(:disabled) { background: rgba(0, 0, 0, 0.18); }
 .update-tag { position: absolute; left: 6px; bottom: 6px; font-size: 11px; padding: 1px 7px; border-radius: 99px; font-weight: 600; background: var(--accent); color: var(--accent-text); }
@@ -253,6 +256,34 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .printer-row { display: flex; align-items: center; gap: 8px; }
 .printer-form { display: flex; flex-direction: column; gap: 10px; max-width: 480px; margin: 6px 0 12px; }
 .found-list { margin-top: 10px; }
+.printers-view { max-width: 1100px; }
+.printer-panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; }
+.printer-panel.off strong { color: var(--muted); }
+.printer-live { display: grid; grid-template-columns: minmax(0, 3fr) minmax(240px, 2fr); gap: 14px; }
+@media (max-width: 900px) { .printer-live { grid-template-columns: minmax(0, 1fr); } }
+.camera { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); overflow: hidden; display: grid; place-items: center; }
+.camera.off { aspect-ratio: auto; background: none; justify-items: start; }
+.camera img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.camera-note { padding: 12px; text-align: center; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.camera-hide { position: absolute; right: 6px; bottom: 6px; opacity: 0.75; }
+.camera-hide:hover { opacity: 1; }
+.printer-facts { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.printer-facts p { margin: 0; }
+.printer-print { display: flex; flex-direction: column; gap: 6px; }
+.printer-print .printer-job { font-size: 15px; font-weight: 600; white-space: normal; }
+.printer-progress { display: flex; align-items: center; gap: 10px; font-variant-numeric: tabular-nums; }
+.printer-progress .progress { flex: 1; }
+.fact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px 14px; margin: 0; }
+.fact-grid dt { font-size: 11px; color: var(--muted); }
+.fact-grid dd { margin: 0; font-variant-numeric: tabular-nums; }
+.spools { display: flex; flex-wrap: wrap; gap: 6px; }
+.spool { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 99px; }
+.spool.active { border-color: var(--accent); }
+.spool-swatch { width: 11px; height: 11px; border-radius: 50%; border: 1px solid var(--muted); }
+.printer-row label.inline { margin: 0; }
+.slicer-row { margin-bottom: 12px; }
+.slicer-row label.inline { margin-bottom: 6px; font-weight: 600; }
+.slicer-row label.slicer-option { margin: 6px 0 0; font-weight: 400; }
 
 .review-items { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; }
 .review-item { display: flex; align-items: center; gap: 8px; }
@@ -330,6 +361,7 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 
 .settings { padding: 20px 28px; overflow-y: auto; max-width: 820px; }
 .settings section { margin-bottom: 28px; }
+.settings-tabs { margin-bottom: 18px; }
 .setting { margin-bottom: 18px; }
 .setting h4 { margin: 0 0 6px; }
 .setting p { margin: 6px 0 0; }

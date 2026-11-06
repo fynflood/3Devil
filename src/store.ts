@@ -17,7 +17,7 @@ import type {
 const EMPTY: AppState = {
   version: 1,
   projects: [],
-  settings: { slicers: { bambu: null, prusa: null }, defaultSlicer: "bambu", printers: [] },
+  settings: { slicers: { bambu: null, prusa: null, orca: null }, defaultSlicer: "bambu", printers: [] },
 };
 
 export const uid = () => crypto.randomUUID();
@@ -70,7 +70,8 @@ export function queuedCounts(project: Project): Map<string, number> {
   return m;
 }
 
-export function partStatus(part: Part, queued: number): PartStatus {
+export function partStatus(part: Part, queued: number, printing = 0): PartStatus {
+  if (printing > 0) return "printing";
   if (part.printed >= part.required) return "done";
   return queued > 0 ? "queued" : "todo";
 }
@@ -588,6 +589,19 @@ export function useStore() {
         if (job) fn(job);
       });
     },
+    /** Keeps only the given parts in a job; the others move to a queued job of their own. */
+    splitJob(projectId: string, jobId: string, partIds: string[]) {
+      withProject(projectId, (p) => {
+        const job = p.jobs.find((j) => j.id === jobId);
+        if (!job) return;
+        const rest = job.items.filter((it) => !partIds.includes(it.partId));
+        if (!rest.length || rest.length === job.items.length) return;
+        p.jobs.unshift({ ...job, id: uid(), name: `Job ${p.jobs.length + 1}`, items: rest, printer: undefined });
+        job.items = job.items.filter((it) => partIds.includes(it.partId));
+        // Later drops onto the slicer join the parts still waiting.
+        job.droppedAt = undefined;
+      });
+    },
     /** Takes one part out of a job; a job left empty is deleted. */
     removeJobItem(projectId: string, jobId: string, partId: string) {
       withProject(projectId, (p) => {
@@ -628,6 +642,11 @@ export function useStore() {
     setDriveThru(patch: Partial<DriveThruSettings>) {
       mutate((s) => {
         s.settings.driveThru = { apiKey: "", libraryPath: "", ...s.settings.driveThru, ...patch };
+      });
+    },
+    setEnabledSlicers(ids: SlicerId[]) {
+      mutate((s) => {
+        s.settings.enabledSlicers = ids;
       });
     },
     setDefaultSlicer(id: SlicerId) {

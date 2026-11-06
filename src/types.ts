@@ -1,9 +1,12 @@
-export type SlicerId = "bambu" | "prusa";
+export type SlicerId = "bambu" | "prusa" | "orca";
 
 export const SLICER_NAMES: Record<SlicerId, string> = {
   bambu: "Bambu Studio",
   prusa: "PrusaSlicer",
+  orca: "OrcaSlicer",
 };
+
+export const SLICER_IDS = Object.keys(SLICER_NAMES) as SlicerId[];
 
 /** What the last update of the publisher's files did to a part. */
 export type PartUpdate = "changed" | "new" | "removed";
@@ -87,27 +90,35 @@ export interface JobPrinterLink {
   awaitingReview?: boolean;
 }
 
-export type PrinterKind = "bambu" | "prusa";
+export type PrinterKind = "bambu" | "prusa" | "klipper";
+
+export const PRINTER_KIND_NAMES: Record<PrinterKind, string> = {
+  bambu: "Bambu Lab",
+  prusa: "Prusa",
+  klipper: "Klipper",
+};
 
 export interface PrinterConfig {
   id: string;
   /** Missing on printers saved before Prusa support: those are Bambu. */
   kind?: PrinterKind;
   name: string;
-  /** IP address (Bambu), or IP address or host name (Prusa). */
+  /** IP address (Bambu), or IP address or host name (Prusa, Klipper). */
   ip: string;
-  /** Empty for Prusa printers that don't report one. */
+  /** Empty for printers that don't report one. */
   serial: string;
   model: string;
-  /** Bambu LAN access code, or PrusaLink password / API key. */
+  /** Bambu LAN access code, PrusaLink password / API key, or Moonraker API key (optional). */
   accessCode: string;
   /** PrusaLink user name; "maker" on Prusa's own firmware. */
   username?: string;
+  /** Turned off: no connection, and left out of the sidebar. */
+  disabled?: boolean;
 }
 
 /**
- * Subset of a Bambu `print` status report that 3Devil uses. Prusa printers
- * report the same fields, converted from PrusaLink (no layer counts).
+ * Subset of a Bambu `print` status report that 3Devil uses. Prusa and Klipper
+ * printers report the same fields, converted from their own APIs.
  */
 export interface PrinterReport {
   gcode_state?: string;
@@ -124,8 +135,35 @@ export interface PrinterReport {
   bed_target_temper?: number;
   chamber_temper?: number;
   print_error?: number;
-  /** PrusaLink's id for the print. */
+  /** The printer's id for the print, on PrusaLink and Moonraker. */
   job_id?: string;
+  /** Speed profile, 1 (silent) to 4 (ludicrous). */
+  spd_lvl?: number;
+  /** Print speed as a percentage. */
+  spd_mag?: number;
+  wifi_signal?: string;
+  /** Fan speeds, "0" to "15". */
+  cooling_fan_speed?: string;
+  big_fan1_speed?: string;
+  big_fan2_speed?: string;
+  heatbreak_fan_speed?: string;
+  nozzle_diameter?: string;
+  ipcam?: { rtsp_url?: string };
+  ams?: { tray_now?: string; ams?: { id: string; tray?: AmsTray[] }[] };
+  /** The spool outside the AMS. */
+  vt_tray?: AmsTray;
+  hms?: unknown[];
+  /** Where X1 printers report the chamber temperature. */
+  device?: { ctc?: { info?: { temp?: number } } };
+}
+
+export interface AmsTray {
+  id: string;
+  tray_type?: string;
+  /** RRGGBBAA. */
+  tray_color?: string;
+  /** Percent left; negative when unknown. */
+  remain?: number;
 }
 
 export interface PrinterStatus {
@@ -194,6 +232,8 @@ export type Theme = "system" | "light" | "dark";
 export interface Settings {
   slicers: Record<SlicerId, string[] | null>;
   defaultSlicer: SlicerId;
+  /** Slicers offered around the app. Unset until the first look for installed ones. */
+  enabledSlicers?: SlicerId[];
   /** Send files to an already-open slicer window (default on). */
   reuseSlicerWindow?: boolean;
   /** Colour theme; "system" (the default) follows the OS. */
@@ -217,4 +257,4 @@ export interface ModelFile {
   size: number;
 }
 
-export type PartStatus = "todo" | "queued" | "done";
+export type PartStatus = "todo" | "queued" | "printing" | "done";

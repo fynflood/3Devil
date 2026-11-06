@@ -3,13 +3,19 @@ import { ModelViewer } from "../viewer/ModelViewer";
 import { useEffect, useState } from "react";
 import { formatBytes, formatDuration, parseDuration } from "../api";
 import type { Store } from "../store";
-import { SLICER_NAMES, type Part, type Project, type SlicerId } from "../types";
+import { SLICER_NAMES, type JobItem, type Part, type Project, type SlicerId } from "../types";
 
 interface Props {
   store: Store;
   project: Project;
   part: Part;
   queued: number;
+  /** Of the queued copies, how many are on a printer right now. */
+  printing: number;
+  /** What printers are making right now, by job id. */
+  running: Map<string, JobItem[]>;
+  /** The slicers to offer. */
+  slicers: SlicerId[];
   /** Older parts this new part may replace, best match first. */
   replaceCandidates: Part[];
   /** What looks like a newer version of this part. */
@@ -19,7 +25,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function PartDetail({ store, project, part, queued, replaceCandidates, newerVersion, onOpenPart, onSend, onClose }: Props) {
+export function PartDetail({ store, project, part, queued, printing, running, slicers, replaceCandidates, newerVersion, onOpenPart, onSend, onClose }: Props) {
   const update = (patch: Partial<Part>) => store.actions.updatePart(project.id, part.id, patch);
   const jobs = project.jobs.filter((j) => j.items.some((it) => it.partId === part.id));
   const num = (v: string) => Math.max(0, parseInt(v, 10) || 0);
@@ -69,7 +75,11 @@ export function PartDetail({ store, project, part, queued, replaceCandidates, ne
             <input type="number" min={0} value={part.failed} onChange={(e) => update({ failed: num(e.target.value) })} />
           </label>
         </div>
-        {queued > 0 && (
+        {printing > 0 ? (
+          <p className="muted queued-note">
+            {printing === 1 ? "Printing now" : `${printing} printing now`}{queued > printing ? `, ${queued - printing} more queued` : ""}.
+          </p>
+        ) : queued > 0 && (
           <p className="muted queued-note">
             {queued} in queued print jobs.
             <button className="link" onClick={() => store.actions.unqueueParts(project.id, [part.id])}>Remove from queue</button>
@@ -97,7 +107,7 @@ export function PartDetail({ store, project, part, queued, replaceCandidates, ne
         </label>
 
         <div className="btn-row">
-          {(Object.keys(SLICER_NAMES) as SlicerId[]).map((id) => (
+          {slicers.map((id) => (
             <button key={id} className="primary" disabled={part.missing} onClick={() => onSend([part.id], id, false)}>
               Open in {SLICER_NAMES[id]}
             </button>
@@ -118,7 +128,7 @@ export function PartDetail({ store, project, part, queued, replaceCandidates, ne
                 <span>{j.name}</span>
                 <span>×{j.items.find((it) => it.partId === part.id)?.qty}</span>
                 {j.printer?.durationSec ? <span className="muted">{formatDuration(j.printer.durationSec)}</span> : null}
-                <span className="muted">{j.status}</span>
+                <span className="muted">{running.get(j.id)?.some((it) => it.partId === part.id) ? "printing" : j.status}</span>
               </div>
             ))}
           </div>

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { DriveThruFile, DriveThruLibrary, ModelFile } from "./types";
+import type { DriveThruFile, DriveThruLibrary, ModelFile, SlicerId } from "./types";
 
 export interface FoundPrinter {
   ip: string;
@@ -44,7 +44,7 @@ export const api = {
   extractArchives: (dir: string) =>
     invoke<{ extracted: string[]; failed: string[]; changed: string[]; removed: string[] }>("extract_archives", { dir }),
   detectSlicers: () =>
-    invoke<{ bambu: string[] | null; prusa: string[] | null }>("detect_slicers"),
+    invoke<Record<SlicerId, string[] | null>>("detect_slicers"),
   openInSlicer: (command: string[], files: string[], singleInstance: boolean) =>
     invoke<void>("open_in_slicer", { command, files, singleInstance }),
   openFolder: (path: string) => invoke<void>("open_folder", { path }),
@@ -57,6 +57,13 @@ export const api = {
     invoke<FoundPrinter>("prusa_probe", { host, username, password }),
   prusaConnect: (p: { id: string; host: string; username: string; password: string }) =>
     invoke<void>("prusa_connect", p),
+  klipperProbe: (host: string, apiKey: string) => invoke<FoundPrinter>("klipper_probe", { host, apiKey }),
+  klipperScan: () => invoke<FoundPrinter[]>("klipper_scan"),
+  klipperConnect: (p: { id: string; host: string; apiKey: string }) => invoke<void>("klipper_connect", p),
+  cameraStart: (p: { id: string; kind: string; host: string; accessCode: string; rtsp: boolean }) =>
+    invoke<CameraView>("camera_start", p),
+  cameraFrame: (id: string) => invoke<ArrayBuffer>("camera_frame", { id }),
+  cameraStop: (id: string) => invoke<void>("camera_stop", { id }),
   drivethruLibrary: (key: string) => invoke<DriveThruLibrary>("drivethru_library", { key }),
   drivethruCachedLibrary: (key: string) => invoke<DriveThruLibrary | null>("drivethru_cached_library", { key }),
   drivethruProductDir: (libraryPath: string, publisher: string, name: string) =>
@@ -116,6 +123,13 @@ export function formatBytes(n: number): string {
 }
 
 /** Splits a command line into arguments, honouring single and double quotes. */
+/** How to turn a camera's picture, for cameras mounted at an angle. */
+export interface CameraView {
+  rotation: number;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+}
+
 export function splitCommand(line: string): string[] {
   const out: string[] = [];
   let cur = "";

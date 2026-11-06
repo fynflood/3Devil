@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
+import { mainSlicer } from "./slicers";
 import type { Store } from "./store";
-import type { Job, Part, PrinterConfig, PrinterReport, PrinterStatus, Project } from "./types";
+import type { Job, JobItem, Part, PrinterConfig, PrinterReport, PrinterStatus, Project } from "./types";
 
 export const ACTIVE_STATES = new Set(["PREPARE", "SLICING", "RUNNING", "PAUSE", "ATTENTION"]);
 
@@ -20,16 +21,39 @@ export const STATE_LABELS: Record<string, string> = {
   ERROR: "Error",
 };
 
+/** Filament types OrcaSlicer may name a print after, with variants like `PLA-CF`. */
+const FILAMENT = "(?:pla|petg|pet|abs|asa|tpu|pa|pc|pp|pps|pva|hips|bvoh|pctg)(?:[-+][a-z0-9]+)*";
+const ORCA_SUFFIX = new RegExp(`_${FILAMENT}_(?=\\d)(?:\\d+d)?(?:\\d+h)?(?:\\d+m)?(?:\\d+s)?$`);
+
 /**
  * Comparable form of a print or part name. Drops the file extension and the
- * settings PrusaSlicer adds by default, as in `Wall_A_0.4n_0.2mm_PLA_MK4S_1h2m.bgcode`.
+ * settings slicers add by default, as in `Wall_A_0.4n_0.2mm_PLA_MK4S_1h2m.bgcode`
+ * (PrusaSlicer) or `Wall_A_PLA_1h2m.gcode` (OrcaSlicer).
  */
 export const norm = (s: string) =>
   s
     .toLowerCase()
     .replace(/\.(gcode\.3mf|3mf|stl|obj|bgcode|gcode)$/, "")
     .replace(/_\d+(\.\d+)?n_\d+(\.\d+)?mm_.*$/, "")
+    .replace(ORCA_SUFFIX, "")
     .replace(/[^a-z0-9]+/g, "");
+
+/**
+ * Tests names against a print's. Bambu Studio names a plate after everything on
+ * it, one entry per copy, as in `Clip.stl + Clip.stl + Wall.stl`, and the printer
+ * cuts the result to 100 characters ending in `...`. An entry cut short could be
+ * the start of anything, so it only counts if it's the whole name.
+ */
+export function printNameTest(subtask: string) {
+  const pieces = subtask.split(" + ");
+  const cut = pieces[pieces.length - 1].endsWith("...") ? pieces.pop()! : "";
+  const keys = new Set([subtask, ...pieces].map(norm));
+  const start = pieces.length ? "" : norm(cut.slice(0, -3).replace(/\.[a-z0-9]{0,8}$/i, ""));
+  return (name: string) => {
+    const key = norm(name);
+    return !!key && (keys.has(key) || (!!start && key.startsWith(start)));
+  };
+}
 
 /** Identifies one run of a print, so a reprint of the same file counts separately. */
 const runKey = (r: PrinterReport) => r.job_id ?? r.gcode_start_time;
@@ -55,12 +79,42 @@ export function linkedJob(projects: Project[], printerId: string, report: Printe
 }
 
 /**
+ * The lines of a job a print is making. A job can hold more than one print's
+ * worth of parts, so a print named after parts is just those parts; only a
+ * print named after the job itself is taken to be all of it.
+ */
+export function itemsInPrint(project: Project, job: Job, subtask: string): JobItem[] {
+  const matches = printNameTest(subtask);
+  const named = job.items.filter((it) => matches(project.parts.find((p) => p.id === it.partId)?.name ?? ""));
+  return named.length ? named : job.items;
+}
+
+/** What connected printers are making right now, by job id. */
+export function runningJobs(projects: Project[], statuses: Record<string, PrinterStatus>) {
+  const running = new Map<string, JobItem[]>();
+  for (const { id, connected, print } of Object.values(statuses)) {
+    if (!connected || !ACTIVE_STATES.has(print.gcode_state ?? "")) continue;
+    const linked = linkedJob(projects, id, print);
+    if (linked) running.set(linked.job.id, itemsInPrint(linked.project, linked.job, print.subtask_name ?? ""));
+  }
+  return running;
+}
+
+/** Copies of each part on a printer right now. */
+export function printingCounts(project: Project, running: Map<string, JobItem[]>) {
+  const m = new Map<string, number>();
+  for (const job of project.jobs) {
+    for (const it of running.get(job.id) ?? []) m.set(it.partId, (m.get(it.partId) ?? 0) + it.qty);
+  }
+  return m;
+}
+
+/**
  * Finds the part a running print most likely corresponds to, by comparing
  * the printer's job name with part names and queued job names.
  */
 export function matchPrint(projects: Project[], report: PrinterReport): PrintMatch | null {
-  const key = norm(report.subtask_name ?? "");
-  if (!key) return null;
+  const matches = printNameTest(report.subtask_name ?? "");
   let fallback: PrintMatch | null = null;
   const byRecent = [...projects].sort((a, b) => b.updatedAt - a.updatedAt);
   for (const project of byRecent) {
@@ -68,11 +122,11 @@ export function matchPrint(projects: Project[], report: PrinterReport): PrintMat
     for (const job of project.jobs) {
       if (job.status !== "queued" || job.printer) continue;
       const parts = job.items.map((it) => project.parts.find((p) => p.id === it.partId)).filter((p): p is Part => !!p);
-      const hit = norm(job.name) === key ? parts[0] : parts.find((p) => norm(p.name) === key);
+      const hit = matches(job.name) ? parts[0] : parts.find((p) => matches(p.name));
       if (hit) return { project, part: hit, job };
     }
     if (!fallback) {
-      const part = project.parts.find((p) => norm(p.name) === key && !hidden.has(p.group));
+      const part = project.parts.find((p) => matches(p.name) && !hidden.has(p.group));
       if (part) fallback = { project, part };
     }
   }
@@ -83,6 +137,29 @@ export function matchPrint(projects: Project[], report: PrinterReport): PrintMat
  * Keeps a live connection to each configured printer, ties running prints to
  * project jobs and records the result when a print ends.
  */
+/** The job a printer's print belongs to, and the part it's making, if known. */
+export function currentPart(projects: Project[], printerId: string, report: PrinterReport) {
+  const linked = linkedJob(projects, printerId, report);
+  if (linked) {
+    const partId = itemsInPrint(linked.project, linked.job, report.subtask_name ?? "")[0]?.partId;
+    const part = linked.project.parts.find((p) => p.id === partId);
+    return { linked, match: part ? { project: linked.project, part } : null };
+  }
+  return { linked, match: ACTIVE_STATES.has(report.gcode_state ?? "") ? matchPrint(projects, report) : null };
+}
+
+/** X1 printers report this temperature in a different place from others. */
+export const chamberTemp = (r: PrinterReport) => r.chamber_temper || r.device?.ctc?.info?.temp;
+
+/** How a printer's connection and state read as a status pill. */
+export function statusPill(status?: PrinterStatus) {
+  const state = status?.print.gcode_state ?? "";
+  if (status?.error) return { label: "Offline", className: "pill-failed" };
+  if (!status?.connected || !state) return { label: "Connecting…", className: "" };
+  const className = ACTIVE_STATES.has(state) ? "pill-active" : state === "FAILED" ? "pill-failed" : state === "FINISH" ? "pill-done" : "";
+  return { label: STATE_LABELS[state] ?? state, className };
+}
+
 export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | "error") => void) {
   const [statuses, setStatuses] = useState<Record<string, PrinterStatus>>({});
   const printers = store.state?.settings.printers ?? [];
@@ -102,7 +179,8 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
   const settingsKey = (p: PrinterConfig) => JSON.stringify([p.kind, p.ip, p.serial, p.accessCode, p.username]);
   const configKey = JSON.stringify(printers.map((p) => [p.id, settingsKey(p)]));
   useEffect(() => {
-    const want = new Map(printers.filter((p) => p.accessCode).map((p) => [p.id, settingsKey(p)]));
+    const on = printers.filter((p) => !p.disabled && (p.accessCode || p.kind === "klipper"));
+    const want = new Map(on.map((p) => [p.id, settingsKey(p)]));
     for (const id of [...connected.current.keys()]) {
       if (!want.has(id)) {
         api.printerDisconnect(id).catch(() => undefined);
@@ -117,7 +195,9 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
         const connect =
           p.kind === "prusa"
             ? api.prusaConnect({ id: p.id, host: p.ip, username: p.username ?? "", password: p.accessCode })
-            : api.printerConnect({ id: p.id, ip: p.ip, serial: p.serial, accessCode: p.accessCode });
+            : p.kind === "klipper"
+              ? api.klipperConnect({ id: p.id, host: p.ip, apiKey: p.accessCode })
+              : api.printerConnect({ id: p.id, ip: p.ip, serial: p.serial, accessCode: p.accessCode });
         connect.catch((e) => notify(String(e), "error"));
       }
     }
@@ -152,13 +232,20 @@ function onChange(
   const { actions } = store;
   const state = r.gcode_state ?? "";
 
+  /** Leaves a job with just what this print makes, so the rest stays queued. */
+  const narrow = (project: Project, job: Job) => {
+    const items = itemsInPrint(project, job, r.subtask_name ?? "");
+    if (items.length < job.items.length) actions.splitJob(project.id, job.id, items.map((it) => it.partId));
+  };
+
   if (ACTIVE_STATES.has(state)) {
-    if (linkedJob(projects, printer.id, r)) return;
+    const linked = linkedJob(projects, printer.id, r);
+    if (linked) return narrow(linked.project, linked.job);
     const m = matchPrint(projects, r);
     if (!m) return;
     const started = Number(r.gcode_start_time) > 0 ? Number(r.gcode_start_time) * 1000 : Date.now();
-    const slicer = printer.kind === "prusa" ? "prusa" : "bambu";
-    const job = m.job ?? actions.createJob(m.project.id, [m.part.id], slicer, r.subtask_name);
+    const slicer = printer.kind === "klipper" ? mainSlicer(store.state!.settings) : (printer.kind ?? "bambu");
+    const job = m.job ?? actions.createJob(m.project.id, [m.part.id], slicer, r.subtask_name?.split(" + ")[0]);
     if (!job) return;
     if (!m.job) {
       // A print started outside 3Devil: assume one copy; editable in Print jobs.
@@ -169,19 +256,22 @@ function onChange(
     actions.updateJob(m.project.id, job.id, (j) => {
       j.printer = { printerId: printer.id, printerName: printer.name, subtask: r.subtask_name ?? "", startedAt: started, runId: r.job_id };
     });
+    if (m.job) narrow(m.project, m.job);
     notify(`${printer.name} is printing “${m.part.name}” (${m.project.name}) — tracking it as ${job.name}.`);
     return;
   }
 
   if (state === "FINISH" || state === "FAILED") {
     const linked = linkedJob(projects, printer.id, r);
-    if (!linked || linked.job.status !== "queued" || linked.job.printer?.awaitingReview) return;
+    if (!linked || linked.job.status !== "queued") return;
     const { project, job } = linked;
     const link = job.printer!;
     const sawEnd = !!prevState && ACTIVE_STATES.has(prevState);
     // On startup, only pick up a finished print if it's the same one we were tracking.
     const sameRun = link.runId ? link.runId === r.job_id : Number(r.gcode_start_time) * 1000 === link.startedAt;
     if (!sawEnd && !sameRun) return;
+    narrow(project, job);
+    if (link.awaitingReview) return;
     actions.updateJob(project.id, job.id, (j) => {
       j.printer!.endState = state;
       j.printer!.awaitingReview = true;

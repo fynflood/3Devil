@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api, formatDuration, formatLongDuration } from "../api";
+import { printingCounts } from "../printers";
 import { activeParts, describeScan, partStatus, projectProgress, queuedCounts, timeLeft, type Store } from "../store";
 import { findRevisions } from "../revisions";
-import { sendToSlicer } from "../slicers";
+import { enabledSlicers, mainSlicer, sendToSlicer } from "../slicers";
 import { dragFiles, dragImage } from "../dragOut";
-import { SLICER_NAMES, type Part, type PartStatus, type Project, type SlicerId } from "../types";
+import { SLICER_NAMES, type JobItem, type Part, type PartStatus, type Project, type SlicerId } from "../types";
 import { PartCard } from "./PartCard";
 import { FolderPanel } from "./FolderPanel";
 import { FolderButton, folderOf } from "./FolderButton";
@@ -20,6 +21,8 @@ interface Props {
   store: Store;
   project: Project;
   driveThru: DriveThru;
+  /** What printers are making right now, by job id. */
+  running: Map<string, JobItem[]>;
   notify: (msg: string, kind?: "info" | "error") => void;
   /** Ask the view to open a part (from global search or a printer card). */
   focusRequest?: { partId: string; n: number } | null;
@@ -30,7 +33,7 @@ interface Props {
 type Filter = "all" | PartStatus | "updated";
 const MODEL_FILTERS = [{ name: "3D models", extensions: ["stl", "3mf", "obj", "STL", "3MF", "OBJ"] }];
 
-export function ProjectView({ store, project, driveThru, notify, focusRequest, onReview }: Props) {
+export function ProjectView({ store, project, driveThru, running, notify, focusRequest, onReview }: Props) {
   const { actions, state } = store;
   const [tab, setTab] = useState<"parts" | "jobs">("parts");
   const [filter, setFilter] = useState<Filter>("all");
@@ -55,6 +58,11 @@ export function ProjectView({ store, project, driveThru, notify, focusRequest, o
   }, [focusRequest?.n]);
 
   const queued = useMemo(() => queuedCounts(project), [project]);
+  const printing = useMemo(() => printingCounts(project, running), [project, running]);
+  const statusOf = useCallback(
+    (p: Part) => partStatus(p, queued.get(p.id) ?? 0, printing.get(p.id) ?? 0),
+    [queued, printing],
+  );
   const progress = projectProgress(project);
   const missingFolders = useMissingFolders(project.folders);
   const pct = progress.required ? Math.round((progress.printed / progress.required) * 100) : 0;
@@ -77,10 +85,10 @@ export function ProjectView({ store, project, driveThru, notify, focusRequest, o
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return active.filter((p) => {
-      if (filter === "updated" ? !p.update && !newerVersions.has(p.id) : filter !== "all" && partStatus(p, queued.get(p.id) ?? 0) !== filter) return false;
+      if (filter === "updated" ? !p.update && !newerVersions.has(p.id) : filter !== "all" && statusOf(p) !== filter) return false;
       return !q || p.name.toLowerCase().includes(q) || p.group.toLowerCase().includes(q);
     });
-  }, [active, filter, query, queued, newerVersions]);
+  }, [active, filter, query, statusOf, newerVersions]);
 
   const groups = useMemo(() => {
     const m = new Map<string, Part[]>();
@@ -95,17 +103,17 @@ export function ProjectView({ store, project, driveThru, notify, focusRequest, o
   const ordered = useMemo(() => groups.flatMap(([, parts]) => parts), [groups]);
 
   const counts = useMemo(() => {
-    const c = { all: active.length, todo: 0, queued: 0, done: 0, updated: 0 };
+    const c = { all: active.length, todo: 0, queued: 0, printing: 0, done: 0, updated: 0 };
     for (const p of active) {
-      c[partStatus(p, queued.get(p.id) ?? 0)]++;
+      c[statusOf(p)]++;
       if (p.update || newerVersions.has(p.id)) c.updated++;
     }
     return c;
-  }, [active, queued, newerVersions]);
+  }, [active, statusOf, newerVersions]);
 
   useEffect(() => {
-    if (filter === "updated" && !counts.updated) setFilter("all");
-  }, [filter, counts.updated]);
+    if ((filter === "updated" || filter === "printing") && !counts[filter]) setFilter("all");
+  }, [filter, counts]);
 
   const hiddenFolders = useMemo(
     () => new Set(project.parts.filter((p) => hidden.has(p.group)).map((p) => p.group)).size,
@@ -217,8 +225,9 @@ export function ProjectView({ store, project, driveThru, notify, focusRequest, o
   const focus = project.parts.find((p) => p.id === focusId) ?? null;
   const update = driveThru.updates.get(project.id);
   const match = driveThru.matches.get(project.id);
-  const defaultSlicer = state!.settings.defaultSlicer;
-  const otherSlicer: SlicerId = defaultSlicer === "bambu" ? "prusa" : "bambu";
+  const slicers = enabledSlicers(state!.settings);
+  const defaultSlicer = mainSlicer(state!.settings);
+  const sendButtons = slicers.filter((id) => id !== defaultSlicer);
 
   return (
     <div className="project">
@@ -331,9 +340,9 @@ export function ProjectView({ store, project, driveThru, notify, focusRequest, o
           ) : (
             <>
               <div className="filters">
-                {(["all", "todo", "queued", "done", ...(counts.updated ? ["updated"] : [])] as Filter[]).map((f) => (
+                {(["all", "todo", ...(counts.printing ? ["printing"] : []), "queued", "done", ...(counts.updated ? ["updated"] : [])] as Filter[]).map((f) => (
                   <button key={f} className={`chip${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>
-                    {{ all: "All", todo: "To print", queued: "Queued", done: "Done", updated: "Updated" }[f]} <span className="muted">{counts[f]}</span>
+                    {{ all: "All", todo: "To print", printing: "Printing", queued: "Queued", done: "Done", updated: "Updated" }[f]} <span className="muted">{counts[f]}</span>
                   </button>
                 ))}
                 {filter === "updated" && (
@@ -411,8 +420,9 @@ export function ProjectView({ store, project, driveThru, notify, focusRequest, o
                           <PartCard
                             key={p.id}
                             part={p}
-                            status={partStatus(p, queued.get(p.id) ?? 0)}
+                            status={statusOf(p)}
                             queued={queued.get(p.id) ?? 0}
+                            printing={printing.get(p.id) ?? 0}
                             selected={selected.has(p.id)}
                             focused={focusId === p.id}
                             onToggle={toggle}
@@ -452,6 +462,9 @@ export function ProjectView({ store, project, driveThru, notify, focusRequest, o
             project={project}
             part={focus}
             queued={queued.get(focus.id) ?? 0}
+            printing={printing.get(focus.id) ?? 0}
+            running={running}
+            slicers={slicers}
             replaceCandidates={revisions.get(focus.id) ?? []}
             newerVersion={newerVersions.get(focus.id)}
             onOpenPart={setFocusId}
@@ -464,8 +477,8 @@ export function ProjectView({ store, project, driveThru, notify, focusRequest, o
       {sel.length > 0 && tab === "parts" && (
         <div className="selection-bar">
           <strong>{sel.length} selected</strong>
-          <button className="primary" onClick={() => send(sel, defaultSlicer, true)}>Send to {SLICER_NAMES[defaultSlicer]}</button>
-          <button onClick={() => send(sel, otherSlicer, true)}>Send to {SLICER_NAMES[otherSlicer]}</button>
+          {defaultSlicer && <button className="primary" onClick={() => send(sel, defaultSlicer, true)}>Send to {SLICER_NAMES[defaultSlicer]}</button>}
+          {sendButtons.map((id) => <button key={id} onClick={() => send(sel, id, true)}>Send to {SLICER_NAMES[id]}</button>)}
           <button
             onClick={() => {
               const job = actions.createJob(project.id, sel, null);
