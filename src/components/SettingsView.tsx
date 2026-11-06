@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api, joinCommand, splitCommand } from "../api";
 import type { Store } from "../store";
 import { SyncSettings } from "./SyncSettings";
-import { enabledSlicers, mainSlicer } from "../slicers";
+import { enabledSlicers, hasPresets, mainSlicer, PRESET_SETTINGS } from "../slicers";
 import { SLICER_IDS, SLICER_NAMES, type SlicerId, type Theme } from "../types";
 import type { Updater } from "../updater";
 import { DEFAULT_THEME } from "../theme";
@@ -92,6 +92,36 @@ function OrcaWindowOption({ command, notify }: { command: string[] | null; notif
   );
 }
 
+/** The print preset new windows of a slicer start on. */
+function SlicerPresetOption({ store, id, command }: { store: Store; id: keyof typeof PRESET_SETTINGS; command: string[] | null }) {
+  const setting = PRESET_SETTINGS[id];
+  const chosen = store.state!.settings[setting] ?? "";
+  const [presets, setPresets] = useState<string[]>([]);
+  const key = JSON.stringify(command);
+
+  useEffect(() => {
+    if (command) api.slicerPresets(id, command).then(setPresets).catch(() => setPresets([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, key]);
+
+  return (
+    <>
+      <label className="inline small slicer-option">
+        Print preset
+        <select value={chosen} onChange={(e) => store.actions.setSlicerPreset(setting, e.target.value || undefined)}>
+          <option value="">Whatever {SLICER_NAMES[id]} used last</option>
+          {presets.map((name) => <option key={name} value={name}>{name}</option>)}
+          {chosen && !presets.includes(chosen) && <option value={chosen}>{chosen} (not found)</option>}
+        </select>
+      </label>
+      <p className="muted small slicer-option">
+        Used when 3Devil opens a new window; a window that's already open keeps its preset. Lists the presets you've saved
+        in {SLICER_NAMES[id]}.
+      </p>
+    </>
+  );
+}
+
 function SlicerRow({ store, id, notify }: Props & { id: SlicerId }) {
   const { settings } = store.state!;
   const saved = settings.slicers[id] ?? null;
@@ -157,6 +187,7 @@ function SlicerRow({ store, id, notify }: Props & { id: SlicerId }) {
         </label>
       )}
       {on && id === "orca" && <OrcaWindowOption command={saved} notify={notify} />}
+      {on && hasPresets(id) && <SlicerPresetOption store={store} id={id} command={saved} />}
     </div>
   );
 }

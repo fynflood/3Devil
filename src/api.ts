@@ -56,6 +56,10 @@ export const api = {
   /** What moving `path` to the Trash would involve; `roots` are the project's folders. */
   folderTrashPlan: (path: string, roots: string[]) => invoke<TrashPlan>("folder_trash_plan", { path, roots }),
   trashFolder: (path: string, roots: string[]) => invoke<void>("trash_folder", { path, roots }),
+  /** Print presets someone has saved in a slicer. */
+  slicerPresets: (id: "bambu" | "prusa", command: string[]) => invoke<string[]>(`${id}_presets`, { command }),
+  /** Makes this the preset the next new window of a slicer starts on. */
+  setSlicerPreset: (id: "bambu" | "prusa", command: string[], name: string) => invoke<void>(`set_${id}_preset`, { command, name }),
   /** OrcaSlicer's "only one instance" preference; null if it can't be read. */
   orcaSingleInstance: (command: string[]) => invoke<boolean | null>("orca_single_instance", { command }),
   setOrcaSingleInstance: (command: string[], on: boolean) => invoke<void>("set_orca_single_instance", { command, on }),

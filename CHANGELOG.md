@@ -9,6 +9,7 @@ Each version's section becomes its release notes and what 3Devil shows after upd
 - **Printers page** with live camera, current print, time left, temperatures, fans and filament.
 - **Klipper printers** connect through Moonraker.
 - **New slicers:** OrcaSlicer, Lychee Slicer and CHITUBOX, each of which can be turned on or off under Settings.
+- **Default print presets:** choose one of your saved presets for Bambu Studio or PrusaSlicer under Settings, and new windows open with it.
 - **Printing badge and live progress** on the part being printed. The rest of its job stays queued.
 - **Remove folders** from a project, with the choice of moving them to the Trash.
 - **Plates of several objects** are now tracked like single prints.

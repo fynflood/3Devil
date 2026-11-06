@@ -14,6 +14,11 @@ export function mainSlicer(settings: Settings): SlicerId | null {
   return on.includes(settings.defaultSlicer) ? settings.defaultSlicer : (on[0] ?? null);
 }
 
+/** The slicers 3Devil can choose a print preset for, and where each choice is saved. */
+export const PRESET_SETTINGS = { bambu: "bambuPreset", prusa: "prusaPreset" } as const;
+
+export const hasPresets = (id: SlicerId): id is keyof typeof PRESET_SETTINGS => id in PRESET_SETTINGS;
+
 /** Returns the configured command for a slicer, auto-detecting (and saving) it if unset. */
 export async function resolveSlicer(store: Store, id: SlicerId): Promise<string[]> {
   const configured = store.state?.settings.slicers[id];
@@ -44,6 +49,10 @@ export async function sendToSlicer(
   // and OrcaSlicer reject it and quit, and read the same option from their own
   // preferences.
   const reuse = id === "prusa" && (store.state?.settings.reuseSlicerWindow ?? true);
+  if (hasPresets(id)) {
+    const preset = store.state?.settings[PRESET_SETTINGS[id]];
+    if (preset) await api.setSlicerPreset(id, command, preset);
+  }
   await api.openInSlicer(command, files, reuse);
   return recordJob ? store.actions.createJob(project.id, partIds, id) : null;
 }

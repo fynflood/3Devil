@@ -689,6 +689,11 @@ export function useStore() {
         s.settings.reuseSlicerWindow = value;
       });
     },
+    setSlicerPreset(setting: "bambuPreset" | "prusaPreset", name: string | undefined) {
+      mutate((s) => {
+        s.settings[setting] = name;
+      });
+    },
     setMyMiniFactory(settings: { libraryPath: string }) {
       mutate((s) => {
         s.settings.myMiniFactory = settings;

@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
+mod bambu;
+mod prusaslicer;
 mod drivethru;
 mod folders;
 mod myminifactory;
@@ -528,6 +530,10 @@ pub fn run() {
             storage::add_path_mapping,
             storage::remove_path_mapping,
             scan_models,
+            bambu::bambu_presets,
+            bambu::set_bambu_preset,
+            prusaslicer::prusa_presets,
+            prusaslicer::set_prusa_preset,
             myminifactory::mmf_session,
             myminifactory::mmf_sign_in,
             myminifactory::mmf_cancel_sign_in,

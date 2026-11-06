@@ -252,6 +252,14 @@ mockIPC(async (cmd, args) => {
       if ((window as unknown as { __mockTrashError?: string }).__mockTrashError) throw (window as unknown as { __mockTrashError: string }).__mockTrashError;
       console.info("[mock] trash_folder", a.path);
       return null;
+    case "bambu_presets":
+    case "prusa_presets":
+      return ["0.20mm Standard Copy", "Demo preset, with a comma"];
+    case "set_bambu_preset":
+    case "set_prusa_preset":
+      console.info("[mock] set_preset", a.name);
+      if ((window as unknown as { __mockPresetError?: string }).__mockPresetError) throw (window as unknown as { __mockPresetError: string }).__mockPresetError;
+      return null;
     case "orca_single_instance":
       return (window as unknown as { __mockOrcaWindow?: boolean | null }).__mockOrcaWindow ?? false;
     case "set_orca_single_instance":

@@ -268,6 +268,10 @@ export interface Settings {
   librarySource?: LibrarySource;
   /** Where MyMiniFactory models download, as <folder>/<designer>/<model>. */
   myMiniFactory?: { libraryPath: string };
+  /** Print preset for new Bambu Studio windows; unset leaves it to Bambu Studio. */
+  bambuPreset?: string;
+  /** Print preset for new PrusaSlicer windows; unset leaves it to PrusaSlicer. */
+  prusaPreset?: string;
   /** Send files to an already-open slicer window (default on). */
   reuseSlicerWindow?: boolean;
   /** Colour theme; "system" (the default) follows the OS. */
