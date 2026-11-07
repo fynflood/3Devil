@@ -15,6 +15,7 @@ mod orca;
 mod preview;
 mod printer;
 mod camera;
+mod elegoo;
 mod klipper;
 mod prusa;
 mod storage;
@@ -562,6 +563,9 @@ pub fn run() {
             klipper::klipper_probe,
             klipper::klipper_scan,
             klipper::klipper_connect,
+            elegoo::elegoo_probe,
+            elegoo::elegoo_scan,
+            elegoo::elegoo_connect,
             camera::camera_start,
             camera::camera_frame,
             camera::camera_stop,

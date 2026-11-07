@@ -88,7 +88,10 @@ export const api = {
   klipperProbe: (host: string, apiKey: string) => invoke<FoundPrinter>("klipper_probe", { host, apiKey }),
   klipperScan: () => invoke<FoundPrinter[]>("klipper_scan"),
   klipperConnect: (p: { id: string; host: string; apiKey: string }) => invoke<void>("klipper_connect", p),
-  cameraStart: (p: { id: string; kind: string; host: string; accessCode: string; rtsp: boolean }) =>
+  elegooProbe: (host: string) => invoke<FoundPrinter>("elegoo_probe", { host }),
+  elegooScan: () => invoke<FoundPrinter[]>("elegoo_scan"),
+  elegooConnect: (p: { id: string; host: string; mainboard: string }) => invoke<void>("elegoo_connect", p),
+  cameraStart: (p: { id: string; kind: string; host: string; accessCode: string; serial: string; rtsp: boolean }) =>
     invoke<CameraView>("camera_start", p),
   cameraFrame: (id: string) => invoke<ArrayBuffer>("camera_frame", { id }),
   cameraStop: (id: string) => invoke<void>("camera_stop", { id }),

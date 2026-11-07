@@ -54,7 +54,12 @@ export function PrinterCard({ printer, status, projects, onOpenPart, onReview }:
           )}
         </>
       )}
-      {status?.connected && (
+      {status?.connected && r.nozzle_temper === undefined && r.vat_temper !== undefined && (
+        <div className="small muted printer-stats">
+          <span title="Resin vat">Vat {temp(r.vat_temper, r.vat_target_temper)}</span>
+        </div>
+      )}
+      {status?.connected && (r.nozzle_temper !== undefined || r.vat_temper === undefined) && (
         <div className="small muted printer-stats">
           <span title="Nozzle">🔥 {temp(r.nozzle_temper, r.nozzle_target_temper)}</span>
           <span title="Bed">▭ {temp(r.bed_temper, r.bed_target_temper)}</span>

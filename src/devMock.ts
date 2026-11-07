@@ -73,6 +73,35 @@ function simulatePrinter(id: string) {
  * Simulates a Prusa printer over PrusaLink: a PrusaSlicer-named file, a short
  * filament-change stop, then finished. The password "mock" logs in.
  */
+function simulateResin(id: string) {
+  const start = Math.floor(Date.now() / 1000);
+  const subtask = `${firstPartName().replace(/\.[a-z0-9]+$/i, "")}.ctb`;
+  let tick = 0;
+  const timer = setInterval(() => {
+    tick++;
+    const done = tick > 30;
+    emit("printer-status", {
+      id,
+      connected: true,
+      error: null,
+      print: {
+        gcode_state: done ? "FINISH" : "RUNNING",
+        mc_percent: done ? 100 : Math.round(tick * 3.2),
+        mc_remaining_time: done ? undefined : 95 - tick * 3,
+        layer_num: tick * 40,
+        total_layer_num: 1240,
+        subtask_name: subtask,
+        gcode_start_time: String(start),
+        job_id: "f25273b12b094c5a",
+        vat_temper: 29.4,
+        vat_target_temper: 30,
+        uv_led_temper: 34.2,
+      },
+    });
+    if (done) clearInterval(timer);
+  }, 1000);
+}
+
 function simulatePrusa(id: string, password: string) {
   if (password !== "mock") {
     emit("printer-status", { id, connected: false, error: "PrusaLink rejected the login. Check the username and password (or API key).", print: {} });
@@ -312,6 +341,14 @@ mockIPC(async (cmd, args) => {
       return [{ ip: "192.168.1.70:7125", serial: "", model: "voron" }];
     case "klipper_connect":
       simulatePrinter(a.id as string);
+      return null;
+    case "elegoo_probe":
+      if (String(a.host).trim() !== "192.168.1.80") throw `No Elegoo printer answered at ${String(a.host).trim()}. Check it's on and connected to your network.`;
+      return { ip: "192.168.1.80", serial: "b4f0a26396520100", model: "Saturn 4 Ultra 16K" };
+    case "elegoo_scan":
+      return [{ ip: "192.168.1.80", serial: "b4f0a26396520100", model: "Saturn 4 Ultra 16K" }];
+    case "elegoo_connect":
+      simulateResin(a.id as string);
       return null;
     case "camera_start":
       if ((window as unknown as { __mockCameraError?: string }).__mockCameraError) throw (window as unknown as { __mockCameraError: string }).__mockCameraError;

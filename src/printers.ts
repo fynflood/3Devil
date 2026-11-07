@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
-import { mainSlicer } from "./slicers";
+import { enabledSlicers, mainSlicer } from "./slicers";
 import type { Store } from "./store";
-import type { Job, JobItem, Part, PrinterConfig, PrinterReport, PrinterStatus, Project } from "./types";
+import type { Job, JobItem, Part, PrinterConfig, PrinterReport, PrinterStatus, Project, Settings, SlicerId } from "./types";
 
 export const ACTIVE_STATES = new Set(["PREPARE", "SLICING", "RUNNING", "PAUSE", "ATTENTION"]);
 
@@ -33,7 +33,7 @@ const ORCA_SUFFIX = new RegExp(`_${FILAMENT}_(?=\\d)(?:\\d+d)?(?:\\d+h)?(?:\\d+m
 export const norm = (s: string) =>
   s
     .toLowerCase()
-    .replace(/\.(gcode\.3mf|3mf|stl|obj|bgcode|gcode)$/, "")
+    .replace(/\.(gcode\.3mf|3mf|stl|obj|bgcode|gcode|ctb|goo)$/, "")
     .replace(/_\d+(\.\d+)?n_\d+(\.\d+)?mm_.*$/, "")
     .replace(ORCA_SUFFIX, "")
     .replace(/[^a-z0-9]+/g, "");
@@ -168,6 +168,13 @@ export function currentPart(projects: Project[], printerId: string, report: Prin
 }
 
 /** X1 printers report this temperature in a different place from others. */
+/** The slicer that likely made a print on an Elegoo printer: a resin slicer, unless it's G-code. */
+function elegooSlicer(settings: Settings, file: string): SlicerId | null {
+  const on = enabledSlicers(settings);
+  if (/\.gcode$/i.test(file)) return mainSlicer(settings);
+  return on.find((id) => id === "chitubox" || id === "lychee") ?? mainSlicer(settings);
+}
+
 export const chamberTemp = (r: PrinterReport) => r.chamber_temper || r.device?.ctc?.info?.temp;
 
 /** How a printer's connection and state read as a status pill. */
@@ -198,7 +205,8 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
   const settingsKey = (p: PrinterConfig) => JSON.stringify([p.kind, p.ip, p.serial, p.accessCode, p.username]);
   const configKey = JSON.stringify(printers.map((p) => [p.id, settingsKey(p)]));
   useEffect(() => {
-    const on = printers.filter((p) => !p.disabled && (p.accessCode || p.kind === "klipper"));
+    // Klipper's API key is optional, and Elegoo printers have no login.
+    const on = printers.filter((p) => !p.disabled && (p.accessCode || p.kind === "klipper" || p.kind === "elegoo"));
     const want = new Map(on.map((p) => [p.id, settingsKey(p)]));
     for (const id of [...connected.current.keys()]) {
       if (!want.has(id)) {
@@ -216,7 +224,9 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
             ? api.prusaConnect({ id: p.id, host: p.ip, username: p.username ?? "", password: p.accessCode })
             : p.kind === "klipper"
               ? api.klipperConnect({ id: p.id, host: p.ip, apiKey: p.accessCode })
-              : api.printerConnect({ id: p.id, ip: p.ip, serial: p.serial, accessCode: p.accessCode });
+              : p.kind === "elegoo"
+                ? api.elegooConnect({ id: p.id, host: p.ip, mainboard: p.serial })
+                : api.printerConnect({ id: p.id, ip: p.ip, serial: p.serial, accessCode: p.accessCode });
         connect.catch((e) => notify(String(e), "error"));
       }
     }
@@ -263,7 +273,10 @@ function onChange(
     const m = matchPrint(projects, r);
     if (!m) return;
     const started = Number(r.gcode_start_time) > 0 ? Number(r.gcode_start_time) * 1000 : Date.now();
-    const slicer = printer.kind === "klipper" ? mainSlicer(store.state!.settings) : (printer.kind ?? "bambu");
+    const slicer =
+      printer.kind === "klipper" ? mainSlicer(store.state!.settings)
+      : printer.kind === "elegoo" ? elegooSlicer(store.state!.settings, r.subtask_name ?? "")
+      : (printer.kind ?? "bambu");
     const job = m.job ?? actions.createJob(m.project.id, [m.part.id], slicer, r.subtask_name?.split(" + ")[0]);
     if (!job) return;
     if (!m.job) {

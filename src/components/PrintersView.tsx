@@ -35,13 +35,14 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
   const scan = async () => {
     setBusy(true);
     try {
-      const [bambu, klipper] = await Promise.all([api.printerScan(), api.klipperScan()]);
+      const [bambu, klipper, elegoo] = await Promise.all([api.printerScan(), api.klipperScan(), api.elegooScan()]);
       const list: Found[] = [
         ...bambu.map((p) => ({ ...p, kind: "bambu" as const })),
         ...klipper.map((p) => ({ ...p, kind: "klipper" as const })),
+        ...elegoo.map((p) => ({ ...p, kind: "elegoo" as const })),
       ];
       setFound(list);
-      if (!list.length) notify("No Bambu Lab or Klipper printers found on your local networks. Add one by its address instead.", "error");
+      if (!list.length) notify("No Bambu Lab, Klipper or Elegoo printers found on your local networks. Add one by its address instead.", "error");
     } finally {
       setBusy(false);
     }
@@ -53,6 +54,7 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
       const p =
         d.kind === "prusa" ? await api.prusaProbe(d.ip, d.username ?? "", d.accessCode)
         : d.kind === "klipper" ? await api.klipperProbe(d.ip, d.accessCode)
+        : d.kind === "elegoo" ? await api.elegooProbe(d.ip)
         : await api.printerProbe(d.ip);
       setDraft((cur) => cur && { ...cur, ip: p.ip, serial: p.serial, model: p.model, name: cur.name || p.model });
       if (d.kind === "prusa" || d.kind === "klipper") notify(`Connected to ${p.model}.`);
@@ -67,7 +69,9 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
   const needsTest = kind === "prusa" || kind === "klipper";
   /** These logins are checked before saving; changing them means checking again. */
   const editLogin = (patch: Partial<PrinterConfig>) => setDraft((d) => d && { ...d, ...patch, ...(needsTest ? { model: "" } : {}) });
-  const canSave = !!draft && (kind === "klipper" ? !!draft.model : !!draft.accessCode && !!(kind === "prusa" ? draft.model : draft.serial));
+  const canSave =
+    !!draft &&
+    (kind === "klipper" ? !!draft.model : kind === "elegoo" ? !!draft.serial : !!draft.accessCode && !!(kind === "prusa" ? draft.model : draft.serial));
 
   return (
     <div className="settings printers-view">
@@ -107,7 +111,7 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
         {!draft && (
           <div className="btn-row">
             <button className="primary" onClick={() => setDraft(newPrinter("bambu"))}>Add printer</button>
-            <button onClick={scan} disabled={busy} title="Scan your local networks for Bambu Lab and Klipper printers">{busy ? "Scanning…" : "Find printers on my network"}</button>
+            <button onClick={scan} disabled={busy} title="Scan your local networks for Bambu Lab, Klipper and Elegoo printers">{busy ? "Scanning…" : "Find printers on my network"}</button>
           </div>
         )}
         {!draft && found && found.length > 0 && (
@@ -159,6 +163,12 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
                 those at. Moonraker's port 7125 is assumed unless you add another, as in <code>192.168.1.70:7130</code>.
               </p>
             )}
+            {kind === "elegoo" && (
+              <p className="muted small">
+                Works with Elegoo printers on your network, such as the Saturn 4, Mars 5 and Centauri Carbon. Some older
+                models use an earlier version of Elegoo's protocol that 3Devil doesn't support yet; Look up says so.
+              </p>
+            )}
             {kind === "bambu" && (
               <p className="muted small">
                 The access code is shown on the printer: <em>Settings → Network</em> (X1/P1) or <em>Settings → LAN</em> (A1).
@@ -169,7 +179,7 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
               <input
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                placeholder={{ bambu: "X1 Carbon", prusa: "MK4", klipper: "Voron" }[kind]}
+                placeholder={{ bambu: "X1 Carbon", prusa: "MK4", klipper: "Voron", elegoo: "Saturn 4 Ultra" }[kind]}
               />
             </label>
             {needsTest ? (
@@ -208,24 +218,32 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
             ) : (
               <>
                 <label className="block">
-                  IP address
+                  {kind === "elegoo" ? "IP address or host name" : "IP address"}
                   <div className="btn-row">
                     <input className="grow mono" value={draft.ip} onChange={(e) => setDraft({ ...draft, ip: e.target.value, serial: "" })} placeholder="192.168.1.50" />
-                    <button onClick={() => lookUp(draft)} disabled={busy || !draft.ip} title="Ask the printer at this address for its serial number">Look up</button>
+                    <button onClick={() => lookUp(draft)} disabled={busy || !draft.ip} title={`Ask the printer at this address for its ${kind === "elegoo" ? "model" : "serial number"}`}>
+                      {busy ? "Looking up…" : "Look up"}
+                    </button>
                   </div>
                 </label>
-                <div className="muted small">{draft.serial ? `${draft.model} · serial ${draft.serial}` : "Click Look up to read the printer's serial number."}</div>
-                <label className="block">
-                  Access code
-                  <input
-                    className="mono"
-                    type="password"
-                    autoComplete="off"
-                    value={draft.accessCode}
-                    onChange={(e) => setDraft({ ...draft, accessCode: e.target.value.trim() })}
-                    placeholder="8 characters from the printer's screen"
-                  />
-                </label>
+                <div className="muted small">
+                  {draft.serial
+                    ? `${draft.model} · ${kind === "elegoo" ? "mainboard" : "serial"} ${draft.serial}`
+                    : `Click Look up to ${kind === "elegoo" ? "find the printer" : "read the printer's serial number"}.`}
+                </div>
+                {kind === "bambu" && (
+                  <label className="block">
+                    Access code
+                    <input
+                      className="mono"
+                      type="password"
+                      autoComplete="off"
+                      value={draft.accessCode}
+                      onChange={(e) => setDraft({ ...draft, accessCode: e.target.value.trim() })}
+                      placeholder="8 characters from the printer's screen"
+                    />
+                  </label>
+                )}
               </>
             )}
             <div className="btn-row end">

@@ -92,12 +92,13 @@ export interface JobPrinterLink {
   awaitingReview?: boolean;
 }
 
-export type PrinterKind = "bambu" | "prusa" | "klipper";
+export type PrinterKind = "bambu" | "prusa" | "klipper" | "elegoo";
 
 export const PRINTER_KIND_NAMES: Record<PrinterKind, string> = {
   bambu: "Bambu Lab",
   prusa: "Prusa",
   klipper: "Klipper",
+  elegoo: "Elegoo",
 };
 
 export interface PrinterConfig {
@@ -105,12 +106,12 @@ export interface PrinterConfig {
   /** Missing on printers saved before Prusa support: those are Bambu. */
   kind?: PrinterKind;
   name: string;
-  /** IP address (Bambu), or IP address or host name (Prusa, Klipper). */
+  /** IP address (Bambu), or IP address or host name (Prusa, Klipper, Elegoo). */
   ip: string;
-  /** Empty for printers that don't report one. */
+  /** Empty for printers that don't report one. An Elegoo printer's mainboard id. */
   serial: string;
   model: string;
-  /** Bambu LAN access code, PrusaLink password / API key, or Moonraker API key (optional). */
+  /** Bambu LAN access code, PrusaLink password / API key, or Moonraker API key (optional). Unused for Elegoo. */
   accessCode: string;
   /** PrusaLink user name; "maker" on Prusa's own firmware. */
   username?: string;
@@ -119,8 +120,8 @@ export interface PrinterConfig {
 }
 
 /**
- * Subset of a Bambu `print` status report that 3Devil uses. Prusa and Klipper
- * printers report the same fields, converted from their own APIs.
+ * Subset of a Bambu `print` status report that 3Devil uses. Prusa, Klipper and
+ * Elegoo printers report the same fields, converted from their own APIs.
  */
 export interface PrinterReport {
   gcode_state?: string;
@@ -136,8 +137,12 @@ export interface PrinterReport {
   bed_temper?: number;
   bed_target_temper?: number;
   chamber_temper?: number;
+  /** Resin vat, on Elegoo resin printers. */
+  vat_temper?: number;
+  vat_target_temper?: number;
+  uv_led_temper?: number;
   print_error?: number;
-  /** The printer's id for the print, on PrusaLink and Moonraker. */
+  /** The printer's id for the print, on PrusaLink, Moonraker and Elegoo. */
   job_id?: string;
   /** Speed profile, 1 (silent) to 4 (ludicrous). */
   spd_lvl?: number;

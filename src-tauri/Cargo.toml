@@ -38,6 +38,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 digest_auth = "0.3.1"
 md5 = "0.8.1"
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }
 
 
 # Mesh simplification is a tight loop; keep it fast in `tauri dev` too.
@@ -57,3 +58,6 @@ strip = true
 # the "Patched for 3Devil" note in vendor/drag/src/platform_impl/gtk/mod.rs.
 [patch.crates-io]
 drag = { path = "vendor/drag" }
+
+[target."cfg(unix)".dependencies]
+libc = "0.2"

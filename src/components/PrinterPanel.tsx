@@ -63,7 +63,18 @@ function Spool({ tray, label, active }: { tray: AmsTray; label: string; active: 
   );
 }
 
-/** The printer's live camera, while the panel is on screen. */
+/** False while the window is minimized or otherwise out of sight. */
+function usePageVisible() {
+  const [visible, setVisible] = useState(document.visibilityState === "visible");
+  useEffect(() => {
+    const update = () => setVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+  return visible;
+}
+
+/** The printer's live camera, while the panel is on screen and the window is in view. */
 function Camera({ printer, status }: { printer: PrinterConfig; status?: PrinterStatus }) {
   const [shown, setShown] = useState(true);
   const [attempt, setAttempt] = useState(0);
@@ -73,15 +84,16 @@ function Camera({ printer, status }: { printer: PrinterConfig; status?: PrinterS
   const kind = printer.kind ?? "bambu";
   const ready = !!status?.connected && !!status.print.gcode_state;
   const rtsp = /^rtsps?:/.test(status?.print.ipcam?.rtsp_url ?? "");
+  const visible = usePageVisible();
 
   useEffect(() => {
-    if (!shown || !ready || kind === "prusa") return;
+    if (!shown || !ready || !visible || kind === "prusa") return;
     let live = true;
     let current = "";
     setError(null);
     (async () => {
       try {
-        const opened = await api.cameraStart({ id: printer.id, kind, host: printer.ip, accessCode: printer.accessCode, rtsp });
+        const opened = await api.cameraStart({ id: printer.id, kind, host: printer.ip, accessCode: printer.accessCode, serial: printer.serial, rtsp });
         if (!live) return;
         setView(opened);
         while (live) {
@@ -104,7 +116,7 @@ function Camera({ printer, status }: { printer: PrinterConfig; status?: PrinterS
       if (current) URL.revokeObjectURL(current);
       setUrl(null);
     };
-  }, [printer.id, kind, printer.ip, printer.accessCode, rtsp, ready, shown, attempt]);
+  }, [printer.id, kind, printer.ip, printer.accessCode, printer.serial, rtsp, ready, shown, visible, attempt]);
 
   if (kind === "prusa") return <div className="camera off"><p className="muted small">3Devil can't show a Prusa printer's camera.</p></div>;
   if (!shown) return <div className="camera off"><button onClick={() => setShown(true)}>Show camera</button></div>;
@@ -152,6 +164,8 @@ export function PrinterPanel({ printer, status, projects, onOpenPart, actions }:
     ["Nozzle", temp(r.nozzle_temper, r.nozzle_target_temper)],
     ["Bed", temp(r.bed_temper, r.bed_target_temper)],
     ["Chamber", temp(chamberTemp(r))],
+    ["Vat", temp(r.vat_temper, r.vat_target_temper)],
+    ["UV light", temp(r.uv_led_temper)],
     ["Part fan", fan(r.cooling_fan_speed)],
     ["Aux fan", fan(r.big_fan1_speed)],
     ["Chamber fan", fan(r.big_fan2_speed)],
