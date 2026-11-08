@@ -2,6 +2,12 @@
 
 Each version's section becomes its release notes and what 3Devil shows after updating. Write for the people using the app, and add a section before tagging a release.
 
+## 0.1.8
+
+- **Elegoo printers** such as the Saturn 4, Mars 5 and Centauri Carbon: find them with Scan, see the current print, time left and temperatures, including the resin vat and UV light, and watch the camera. Parts for an Elegoo resin printer open in CHITUBOX or Lychee Slicer when one is turned on.
+- **Fixed running out of memory:** when another app started watching a Bambu printer's camera, 3Devil could use all the computer's memory until it was forced to close.
+- **Cameras only run while you're looking:** they stop when you leave the Printers page or minimize the window, and start again when you come back.
+
 ## 0.1.7
 
 - **Model Library** replaces the DriveThruRPG library, and sources are chosen and connected on that screen.
