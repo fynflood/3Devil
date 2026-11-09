@@ -128,7 +128,8 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 
 /* Project */
 .project { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.project-head { display: flex; gap: 24px; align-items: center; padding: 16px 20px 10px; }
+/* No right padding: the progress block lines up with the part panel below it. */
+.project-head { display: flex; gap: 24px; align-items: center; padding: 16px 0 10px 20px; }
 .project-title { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .title-input { background: none; border-color: transparent; font-weight: 600; padding: 2px 6px; margin-left: -6px; }
 .title-input:hover { border-color: var(--border); }
@@ -136,10 +137,27 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .title-input.small { font-size: 14px; width: 180px; }
 .desc-input { background: none; border-color: transparent; color: var(--muted); padding: 2px 6px; margin-left: -6px; }
 .desc-input:hover { border-color: var(--border); }
-.progress-block { width: 320px; display: flex; flex-direction: column; gap: 6px; }
+/* A blank description only says so when you're about to fill it in. */
+.desc-input::placeholder { color: transparent; }
+.project-title:hover .desc-input::placeholder, .desc-input:focus::placeholder { color: var(--muted); opacity: 0.6; }
+.progress-block { width: 380px; box-sizing: border-box; padding: 0 14px; flex: none; display: flex; flex-direction: column; gap: 6px; }
 .progress-numbers { display: flex; align-items: baseline; gap: 10px; }
 .progress-numbers strong { font-size: 22px; }
 .time-left { margin-top: 6px; }
+/* Hovering the progress opens a card of what the project's prints add up to. */
+.progress-block { position: relative; }
+.stats-card {
+  display: none; position: absolute; top: calc(100% + 6px); left: 14px; right: 14px; z-index: 30;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35); padding: 4px 12px 10px; font-size: 12px;
+}
+.progress-block:hover .stats-card { display: block; }
+.stats-card h4 { margin: 8px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.stats-card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; }
+.stats-card dt { color: var(--muted); white-space: nowrap; }
+.stats-card dd { margin: 0; }
+.stats-card dd .muted { display: block; font-size: 11px; }
+.stats-card p { margin: 8px 0 0; font-size: 11px; }
 
 .toolbar { display: flex; gap: 8px; align-items: center; padding: 0 20px 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .add-to-project { display: flex; gap: 8px; align-items: center; }

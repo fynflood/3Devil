@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
+import { backfillFilament } from "./filamentBackfill";
 import { enabledSlicers, mainSlicer } from "./slicers";
 import type { Store } from "./store";
 import type { Job, JobItem, Part, PrinterConfig, PrinterReport, PrinterStatus, Project, Settings, SlicerId } from "./types";
@@ -233,11 +234,32 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configKey]);
 
+  // Once per session, fill in filament from the files each Bambu printer keeps.
+  const backfilled = useRef(new Set<string>());
+  useEffect(() => {
+    for (const [id, st] of Object.entries(statuses)) {
+      const printer = printers.find((p) => p.id === id);
+      if (!st.connected || !printer || (printer.kind ?? "bambu") !== "bambu" || backfilled.current.has(id)) continue;
+      backfilled.current.add(id);
+      backfillFilament(store, printer)
+        .then((n) => n && notify(`Filled in filament for ${n} part${n === 1 ? "" : "s"} from the print files on ${printer.name}.`))
+        .catch((e) => console.warn(`Filament from ${printer.name}'s files:`, e));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statuses]);
+
   useEffect(() => {
     const projects = store.state?.projects ?? [];
     for (const [id, st] of Object.entries(statuses)) {
       const r = st.print;
       if (!r.gcode_state) continue;
+      // The weight can arrive after the print is picked up: Bambu's is read from its file.
+      const linked = r.filament_g ? linkedJob(projects, id, r) : null;
+      if (linked?.job.status === "queued" && linked.job.printer!.filamentG !== r.filament_g) {
+        store.actions.updateJob(linked.project.id, linked.job.id, (j) => {
+          j.printer!.filamentG = r.filament_g;
+        });
+      }
       const before = prev.current[id];
       if (before && before.state === r.gcode_state && before.run === runKey(r)) continue;
       prev.current[id] = { state: r.gcode_state, run: runKey(r) };

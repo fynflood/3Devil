@@ -1,4 +1,4 @@
-import { formatDuration } from "../api";
+import { formatDuration, formatGrams } from "../api";
 import type { Store } from "../store";
 import { SLICER_NAMES, type Job, type Project, type SlicerId } from "../types";
 
@@ -40,6 +40,7 @@ export function JobsView({ store, project, onSend, onFocusPart, onReview }: Prop
             {copies} {copies === 1 ? "copy" : "copies"} · {job.slicer ? SLICER_NAMES[job.slicer] : job.droppedAt ? "dragged to slicer" : "manual"} · {fmt(job.createdAt)}
             {job.finishedAt ? ` → ${fmt(job.finishedAt)}` : ""}
             {job.printer && ` · ${job.printer.printerName}${job.printer.durationSec ? ` · ${formatDuration(job.printer.durationSec)}` : job.status === "queued" ? " · printing" : ""}`}
+            {job.printer?.filamentG ? ` · ${formatGrams(job.printer.filamentG)}` : ""}
           </span>
           <div className="spacer" />
           {job.status === "queued" ? (

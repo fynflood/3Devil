@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { MmfAccount, MmfLibrary, MmfModel, DriveThruFile, DriveThruLibrary, ModelFile, SlicerId } from "./types";
+import type { MmfAccount, MmfLibrary, MmfModel, DriveThruFile, DriveThruLibrary, ModelFile, SlicedFile, SlicerId } from "./types";
 
 export interface FoundPrinter {
   ip: string;
@@ -81,6 +81,9 @@ export const api = {
   printerConnect: (p: { id: string; ip: string; serial: string; accessCode: string }) =>
     invoke<void>("printer_connect", p),
   printerDisconnect: (id: string) => invoke<void>("printer_disconnect", { id }),
+  bambuSlicedFiles: (ip: string, accessCode: string) => invoke<string[]>("bambu_sliced_files", { ip, accessCode }),
+  bambuSlicedPlates: (ip: string, accessCode: string, paths: string[]) =>
+    invoke<SlicedFile[]>("bambu_sliced_plates", { ip, accessCode, paths }),
   prusaProbe: (host: string, username: string, password: string) =>
     invoke<FoundPrinter>("prusa_probe", { host, username, password }),
   prusaConnect: (p: { id: string; host: string; username: string; password: string }) =>
@@ -136,6 +139,21 @@ export function parseDuration(text: string): number | null {
   if (!m || (!m[1] && !m[2])) return null;
   const secs = (Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)) * 60;
   return secs > 0 ? Math.round(secs) : null;
+}
+
+/** Filament weight: "12.5 g", "850 g", "1.4 kg". */
+export function formatGrams(g: number): string {
+  if (g < 10) return `${Math.round(g * 10) / 10} g`;
+  if (g < 999.5) return `${Math.round(g)} g`;
+  return `${(g / 1000).toFixed(g < 9950 ? 1 : 0)} kg`;
+}
+
+/** Reads a typed weight: "12.5", "12.5 g" or "1.2 kg". Returns grams, or null. */
+export function parseGrams(text: string): number | null {
+  const m = text.trim().toLowerCase().replace(",", ".").match(/^(\d+(?:\.\d+)?|\.\d+)\s*(g|kg)?$/);
+  if (!m) return null;
+  const g = Number(m[1]) * (m[2] === "kg" ? 1000 : 1);
+  return g > 0 ? Math.round(g * 10) / 10 : null;
 }
 
 export function basename(path: string): string {

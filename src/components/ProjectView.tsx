@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { api, formatDuration, formatLongDuration } from "../api";
+import { api, formatGrams, formatLongDuration } from "../api";
 import { printingCounts } from "../printers";
-import { activeParts, describeScan, partStatus, projectProgress, queuedCounts, timeLeft, type Store } from "../store";
+import { activeParts, describeScan, partStatus, projectProgress, queuedCounts, filamentLeft, projectStats, timeLeft, type Store } from "../store";
 import { findRevisions } from "../revisions";
 import { enabledSlicers, mainSlicer, sendToSlicer } from "../slicers";
 import { dragFiles, dragImage } from "../dragOut";
@@ -335,7 +335,8 @@ export function ProjectView({ store, project, driveThru, running, partProgress, 
             </span>
           </div>
           <div className="progress"><div style={{ width: `${pct}%` }} /></div>
-          <TimeLeft project={project} />
+          <LeftToPrint project={project} />
+          <ProjectStats project={project} />
         </div>
       </header>
 
@@ -657,31 +658,94 @@ export function ProjectView({ store, project, driveThru, running, partProgress, 
   );
 }
 
-/** Printer time still needed, with how much of it is a guess. */
-function TimeLeft({ project }: { project: Project }) {
+/** Printer time and filament still needed, in one line. */
+function LeftToPrint({ project }: { project: Project }) {
   const t = timeLeft(project);
+  const f = filamentLeft(project);
   if (!t.remainingParts) return null;
-  const total = t.known + t.guessed;
-  if (!total) {
-    return (
-      <div className="muted small time-left">
-        No print times yet. They're recorded from tracked prints, or enter them on a part.
-      </div>
-    );
-  }
-  const plural = (n: number) => `${n} part${n === 1 ? "" : "s"}`;
-  const detail = !t.untimed
-    ? ""
-    : t.guessable
-      ? ` · ${plural(t.untimed)} guessed from file size`
-      : ` · ${plural(t.untimed)} with no time yet`;
-  const breakdown = [
-    `${formatDuration(t.known)} from recorded print times`,
-    t.guessed ? `${formatDuration(t.guessed)} guessed for ${plural(t.untimed)} from file size` : null,
-  ].filter(Boolean).join("\n");
+  const time = t.known + t.guessed;
+  const grams = f.known + f.guessed;
+  const amounts = [time ? `${formatLongDuration(time)} of printing` : null, grams ? `${formatGrams(grams)} of filament` : null]
+    .filter(Boolean)
+    .join(" and ");
+  return <div className="muted small time-left">{amounts ? `About ${amounts} left` : "No print times or filament weights yet"}</div>;
+}
+
+const shortDate = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+/** Everything the project's prints add up to, shown while hovering its progress. */
+function ProjectStats({ project }: { project: Project }) {
+  const progress = projectProgress(project);
+  const st = projectStats(project);
+  const t = timeLeft(project);
+  const f = filamentLeft(project);
+  const plural = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
+  /** How much of a figure left is measured and how much guessed. */
+  const basis = (left: ReturnType<typeof timeLeft>, format: (n: number) => string, none: string) => {
+    if (!left.missing) return "All from recorded parts";
+    if (!left.guessable) return `Leaves out ${plural(left.missing, "part")} ${none}`;
+    return left.known
+      ? `${format(left.known)} recorded, ${format(left.guessed)} guessed for ${plural(left.missing, "part")} from file size`
+      : `Guessed for ${plural(left.missing, "part")} from file size`;
+  };
+  const jobs = st.jobsDone + st.jobsFailed;
+  const copiesLeft = progress.required - progress.printed;
+  const partsLeft = progress.parts - progress.partsDone;
+  const timeLeftTotal = t.known + t.guessed;
+  const gramsLeft = f.known + f.guessed;
+  const rows: Row[] = [
+    ["Print jobs", jobs ? `${st.jobsDone} good, ${st.jobsFailed} failed (${Math.round((st.jobsDone / jobs) * 100)}% worked)` : null],
+    ["Printer time", st.goodSec + st.failedSec ? `${formatLongDuration(st.goodSec + st.failedSec)}${st.failedSec ? `, ${formatLongDuration(st.failedSec)} of it on failed prints` : ""}` : null],
+    ["Filament", st.grams ? `About ${formatGrams(st.grams)}${st.failedGrams >= 1 ? `, ${formatGrams(st.failedGrams)} of it on failed prints` : ""}` : null],
+    ["Printing since", st.since ? `${shortDate(st.since)}, about ${formatLongDuration(st.perDay)} a day` : null],
+  ];
+  const leftRows: Row[] = [
+    ["Copies", copiesLeft > 0 ? `${copiesLeft} of ${progress.required}, across ${plural(partsLeft, "part")}` : null],
+    timeLeftTotal
+      ? ["Printer time", `About ${formatLongDuration(timeLeftTotal)}`, basis(t, formatLongDuration, "with no time yet")]
+      : ["Printer time", t.missing ? `No print times yet for ${plural(t.missing, "part")}` : null],
+    gramsLeft
+      ? ["Filament", `About ${formatGrams(gramsLeft)}, ${spools(gramsLeft)}`, basis(f, formatGrams, "with no weight yet")]
+      : ["Filament", f.missing ? `No weights yet for ${plural(f.missing, "part")}` : null],
+    [
+      "Done around",
+      st.finishAt ? shortDate(st.finishAt) : null,
+      `At ${formatLongDuration(st.perDay)} of printing a day${st.overhead >= 0.05 ? `, plus ${Math.round(st.overhead * 100)}% for failures like so far` : ""}`,
+    ],
+  ];
+  const section = (title: string, list: Row[]) => {
+    const shown = list.filter((r) => !!r[1]);
+    return shown.length ? (
+      <>
+        <h4>{title}</h4>
+        <dl>
+          {shown.map(([k, v, note]) => (
+            <Fragment key={k}>
+              <dt>{k}</dt>
+              <dd>
+                {v}
+                {note && <span className="muted">{note}</span>}
+              </dd>
+            </Fragment>
+          ))}
+        </dl>
+      </>
+    ) : null;
+  };
   return (
-    <div className="muted small time-left" title={breakdown}>
-      About {formatLongDuration(total)} of printing left{detail}
+    <div className="stats-card" role="tooltip">
+      {section("So far", rows)}
+      {section("Left", leftRows)}
+      <p className="muted">Times and weights come from tracked prints, or what you enter on a part.</p>
     </div>
   );
 }
+
+/** Filament as the 1 kg spools it takes: "7 spools of 1 kg". */
+function spools(grams: number) {
+  const n = Math.ceil(grams / 1000);
+  return n === 1 ? "under a 1 kg spool" : `${n} spools of 1 kg`;
+}
+
+/** A line of the stats card: label, figure, and an optional note on how it was worked out. */
+type Row = [string, string | null, string?];

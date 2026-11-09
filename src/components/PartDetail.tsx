@@ -1,7 +1,7 @@
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ModelViewer } from "../viewer/ModelViewer";
 import { useEffect, useState } from "react";
-import { formatBytes, formatDuration, parseDuration } from "../api";
+import { formatBytes, formatDuration, parseDuration, parseGrams } from "../api";
 import type { PartProgress } from "../printers";
 import type { Store } from "../store";
 import { SLICER_NAMES, type JobItem, type Part, type Project, type SlicerId } from "../types";
@@ -103,7 +103,28 @@ export function PartDetail({ store, project, part, queued, printing, progress, s
             <button className="link" onClick={() => store.actions.unqueueParts(project.id, [part.id])}>Remove from queue</button>
           </p>
         )}
-        <PrintTime part={part} onChange={(printSeconds) => update({ printSeconds, printSecondsEstimated: undefined })} />
+        <PerCopy
+          label="Print time per copy"
+          value={part.printSeconds}
+          estimated={part.printSecondsEstimated}
+          format={formatDuration}
+          parse={parseDuration}
+          placeholder="e.g. 1h 20m, from the slicer"
+          recorded="Recorded automatically when a tracked print of this part finishes."
+          usedFor="Used for the project's time left."
+          onChange={(printSeconds) => update({ printSeconds, printSecondsEstimated: undefined })}
+        />
+        <PerCopy
+          label="Filament per copy"
+          value={part.filamentGrams}
+          estimated={part.filamentGramsEstimated}
+          format={(g) => `${g} g`}
+          parse={parseGrams}
+          placeholder="e.g. 25 g, from the slicer"
+          recorded="Recorded from the slicer's figures when a tracked print of this part finishes."
+          usedFor="Used for the project's filament left."
+          onChange={(filamentGrams) => update({ filamentGrams, filamentGramsEstimated: undefined })}
+        />
         <div className="btn-row">
           <button title="Set Printed to the number needed" onClick={() => update({ printed: part.required })} disabled={part.printed >= part.required}>Mark all printed</button>
           <button title="Set Printed back to 0" onClick={() => update({ printed: 0 })} disabled={part.printed === 0}>Reset</button>
@@ -235,33 +256,51 @@ function RevisionNotes({ store, project, part, replaceCandidates, newerVersion, 
   );
 }
 
-/** Per-copy print time: recorded from tracked prints, or typed in from the slicer. */
-function PrintTime({ part, onChange }: { part: Part; onChange: (secs: number | undefined) => void }) {
-  const shown = part.printSeconds ? formatDuration(part.printSeconds) : "";
+/** A per-copy figure (print time, filament): recorded from tracked prints, or typed in from the slicer. */
+function PerCopy({
+  label,
+  value,
+  estimated,
+  format,
+  parse,
+  placeholder,
+  recorded,
+  usedFor,
+  onChange,
+}: {
+  label: string;
+  value: number | undefined;
+  estimated: boolean | undefined;
+  format: (n: number) => string;
+  parse: (text: string) => number | null;
+  placeholder: string;
+  recorded: string;
+  usedFor: string;
+  onChange: (n: number | undefined) => void;
+}) {
+  const shown = value ? format(value) : "";
   const [text, setText] = useState(shown);
   useEffect(() => setText(shown), [shown]);
   const commit = () => {
-    if (!text.trim()) return part.printSeconds && onChange(undefined);
-    const secs = parseDuration(text);
-    if (secs === null) setText(shown);
-    else if (secs !== part.printSeconds) onChange(secs);
+    // Unchanged text keeps the figure as it was, rounding and all.
+    if (text === shown) return;
+    if (!text.trim()) return value && onChange(undefined);
+    const n = parse(text);
+    if (n === null) setText(shown);
+    else if (n !== value) onChange(n);
   };
   return (
     <label className="block print-time">
-      Print time per copy
+      {label}
       <input
         value={text}
-        placeholder="e.g. 1h 20m, from the slicer"
+        placeholder={placeholder}
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
       />
       <span className="muted small">
-        {!part.printSeconds
-          ? "Recorded automatically when a tracked print of this part finishes."
-          : part.printSecondsEstimated
-            ? "Estimated: its share of a plate printed with other parts."
-            : "Used for the project's time left."}
+        {!value ? recorded : estimated ? "Estimated: its share of a plate printed with other parts." : usedFor}
       </span>
     </label>
   );

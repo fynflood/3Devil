@@ -154,6 +154,21 @@ struct JobInfo {
 struct JobFile {
     name: String,
     display_name: Option<String>,
+    /// The slicer's notes in the file, such as `"filament used [g]"`.
+    #[serde(default)]
+    meta: Value,
+}
+
+/// Grams of filament from a file's metadata: a number, or text that may list
+/// one figure per extruder, as in `"12.3, 0.0"`.
+fn filament_grams(meta: &Value) -> Option<f64> {
+    let used = &meta["filament used [g]"];
+    let grams = match used {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => s.split(',').map(|x| x.trim().parse::<f64>().ok()).sum(),
+        _ => None,
+    };
+    grams.filter(|g| *g > 0.0)
 }
 
 #[derive(Deserialize)]
@@ -170,6 +185,8 @@ struct Run {
     name: String,
     /// Unix seconds, worked out once from the printer's elapsed time.
     started: i64,
+    /// Grams of filament, from the slicer's figures in the file.
+    filament_g: Option<f64>,
 }
 
 /// Bambu `gcode_state` for a PrusaLink printer state.
@@ -206,6 +223,9 @@ fn report(status: &Status, run: Option<&Run>) -> Value {
         r["subtask_name"] = json!(run.name);
         r["gcode_start_time"] = json!(run.started.to_string());
         r["job_id"] = json!(run.id.to_string());
+        if let Some(grams) = run.filament_g {
+            r["filament_g"] = json!(grams);
+        }
     }
     if let Some(job) = job {
         r["mc_percent"] = json!(job.progress.unwrap_or(0.0).round() as i64);
@@ -229,11 +249,10 @@ async fn poll(link: &mut Link, run: &mut Option<Run>) -> Result<Value, Failure> 
         let id = job.id.unwrap_or(0);
         if run.as_ref().map(|r| r.id) != Some(id) {
             let info: Option<JobInfo> = link.get_json("/api/v1/job").await?;
-            let name = info
-                .and_then(|i| i.file)
-                .map(|f| f.display_name.unwrap_or(f.name))
-                .unwrap_or_default();
-            *run = Some(Run { id, name, started: now() - job.time_printing.unwrap_or(0) });
+            let file = info.and_then(|i| i.file);
+            let filament_g = file.as_ref().and_then(|f| filament_grams(&f.meta));
+            let name = file.map(|f| f.display_name.unwrap_or(f.name)).unwrap_or_default();
+            *run = Some(Run { id, name, started: now() - job.time_printing.unwrap_or(0), filament_g });
         }
     }
     Ok(report(&status, run.as_ref()))
@@ -346,7 +365,7 @@ mod tests {
             "job": {"id": 7, "progress": 42.4, "time_remaining": 3600, "time_printing": 120},
             "printer": {"state": "PRINTING", "temp_nozzle": 214.8, "target_nozzle": 215.0, "temp_bed": 60.1, "target_bed": 60.0}
         }));
-        let run = Run { id: 7, name: "Wall_A_0.4n_0.2mm_PLA_MK4S_1h2m.bgcode".into(), started: 1000 };
+        let run = Run { id: 7, name: "Wall_A_0.4n_0.2mm_PLA_MK4S_1h2m.bgcode".into(), started: 1000, filament_g: None };
         let r = report(&s, Some(&run));
         assert_eq!(r["gcode_state"], "RUNNING");
         assert_eq!(r["mc_percent"], 42);
@@ -358,8 +377,23 @@ mod tests {
     }
 
     #[test]
+    fn filament_from_file_metadata() {
+        assert_eq!(filament_grams(&json!({"filament used [g]": 12.5})), Some(12.5));
+        assert_eq!(filament_grams(&json!({"filament used [g]": "12.5, 2.5"})), Some(15.0));
+        assert_eq!(filament_grams(&json!({"filament used [g]": "0"})), None);
+        assert_eq!(filament_grams(&json!({})), None);
+        assert_eq!(filament_grams(&Value::Null), None);
+        let info: JobInfo = serde_json::from_value(json!({"file": {"name": "A.bgcode", "meta": {"filament used [g]": 3.1}}})).unwrap();
+        let file = info.file.unwrap();
+        assert_eq!(filament_grams(&file.meta), Some(3.1));
+        let run = Run { id: 7, name: file.name, started: 1000, filament_g: filament_grams(&file.meta) };
+        let s = status(json!({"job": {"id": 7}, "printer": {"state": "PRINTING"}}));
+        assert_eq!(report(&s, Some(&run))["filament_g"], 3.1);
+    }
+
+    #[test]
     fn finished_print_keeps_its_name() {
-        let run = Run { id: 7, name: "Wall_A.bgcode".into(), started: 1000 };
+        let run = Run { id: 7, name: "Wall_A.bgcode".into(), started: 1000, filament_g: None };
         let r = report(&status(json!({"printer": {"state": "FINISHED"}})), Some(&run));
         assert_eq!(r["gcode_state"], "FINISH");
         assert_eq!(r["subtask_name"], "Wall_A.bgcode");

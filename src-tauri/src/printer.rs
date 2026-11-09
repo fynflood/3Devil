@@ -238,8 +238,11 @@ fn merge(base: &mut Value, patch: &Value) {
 async fn run(app: AppHandle, id: String, ip: String, serial: String, access_code: String) {
     let report_topic = format!("device/{serial}/report");
     let request_topic = format!("device/{serial}/request");
-    let mut state = json!({});
+    let shared = Arc::new(Mutex::new(json!({})));
+    let state = || shared.lock().unwrap().clone();
     let mut last_log = String::new();
+    // The print whose filament weight is being looked up, and the lookup.
+    let mut weighing: Option<(String, AbortOnDrop)> = None;
 
     let emit = |connected: bool, error: Option<String>, print: &Value| emit_status(&app, &id, connected, error, print);
 
@@ -262,12 +265,26 @@ async fn run(app: AppHandle, id: String, ip: String, serial: String, access_code
                     let _ = client
                         .publish(&request_topic, QoS::AtMostOnce, false, pushall.to_string())
                         .await;
-                    emit(true, None, &state);
+                    emit(true, None, &state());
                 }
                 Ok(Event::Incoming(Packet::Publish(msg))) => {
                     let Ok(v) = serde_json::from_slice::<Value>(&msg.payload) else { continue };
                     let Some(print) = v.get("print") else { continue };
-                    merge(&mut state, print);
+                    let state = {
+                        let mut state = shared.lock().unwrap();
+                        merge(&mut state, print);
+                        let key = run_key(&state);
+                        if key.as_deref() != weighing.as_ref().map(|(k, _)| k.as_str()) {
+                            if let Some(o) = state.as_object_mut() {
+                                o.remove("filament_g");
+                            }
+                            weighing = key.map(|key| {
+                                let task = weigh(app.clone(), id.clone(), ip.clone(), access_code.clone(), shared.clone(), key.clone());
+                                (key, AbortOnDrop(tauri::async_runtime::spawn(task)))
+                            });
+                        }
+                        state.clone()
+                    };
                     let summary = format!(
                         "{} {}% layer {}/{} {}",
                         state["gcode_state"].as_str().unwrap_or("?"),
@@ -286,17 +303,66 @@ async fn run(app: AppHandle, id: String, ip: String, serial: String, access_code
                 Err(rumqttc::ConnectionError::ConnectionRefused(code)) => {
                     let msg = format!("Printer refused the connection ({code:?}). Check the access code.");
                     println!("[printer {serial}] {msg}");
-                    emit(false, Some(msg), &state);
+                    emit(false, Some(msg), &state());
                     break Duration::from_secs(30);
                 }
                 Err(e) => {
                     println!("[printer {serial}] connection error: {e}");
-                    emit(false, Some(format!("Can't reach printer at {ip}: {e}")), &state);
+                    emit(false, Some(format!("Can't reach printer at {ip}: {e}")), &state());
                     break Duration::from_secs(5);
                 }
             }
         };
         tokio::time::sleep(retry_after).await;
+    }
+}
+
+/// Identifies the print a report is about, while there is one.
+fn run_key(state: &Value) -> Option<String> {
+    let active = matches!(state["gcode_state"].as_str(), Some("PREPARE" | "SLICING" | "RUNNING" | "PAUSE" | "FINISH" | "FAILED"));
+    let subtask = state["subtask_name"].as_str().filter(|s| !s.is_empty() && active)?;
+    let id = |k: &str| state[k].as_str().map(str::to_owned).unwrap_or_else(|| state[k].to_string());
+    Some(format!("{subtask}\n{}\n{}", id("job_id"), id("task_id")))
+}
+
+/// Stops a background task when dropped, so it ends with the connection that started it.
+struct AbortOnDrop(JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Looks up how much filament the print `key` uses and adds it to the
+/// printer's status as `filament_g`. The file can take a moment to appear.
+async fn weigh(app: AppHandle, id: String, ip: String, access_code: String, shared: Arc<Mutex<Value>>, key: String) {
+    let Ok(addr) = ip.parse::<IpAddr>() else { return };
+    let (gcode_file, subtask, plate) = {
+        let s = shared.lock().unwrap();
+        (s["gcode_file"].as_str().unwrap_or("").to_owned(), s["subtask_name"].as_str().unwrap_or("").to_owned(), s["plate_idx"].as_u64())
+    };
+    for attempt in 0..3 {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
+        match crate::bambu_ftp::print_weight(addr, &access_code, &gcode_file, &subtask, plate).await {
+            Ok(Some(grams)) => {
+                println!("[printer {ip}] {subtask} uses {grams} g of filament");
+                let state = {
+                    let mut s = shared.lock().unwrap();
+                    if run_key(&s).as_deref() != Some(key.as_str()) {
+                        return;
+                    }
+                    s["filament_g"] = json!(grams);
+                    s.clone()
+                };
+                emit_status(&app, &id, true, None, &state);
+                return;
+            }
+            Ok(None) => println!("[printer {ip}] no sliced file for {subtask} on the printer"),
+            Err(e) => println!("[printer {ip}] can't read the print's file: {e}"),
+        }
     }
 }
 

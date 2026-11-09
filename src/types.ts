@@ -40,6 +40,10 @@ export interface Part {
   printSeconds?: number;
   /** `printSeconds` is this part's share of a multi-part plate, not its own print. */
   printSecondsEstimated?: boolean;
+  /** Grams of filament per copy: from the slicer's figures for the last tracked print, or entered by hand. */
+  filamentGrams?: number;
+  /** `filamentGrams` is this part's share of a multi-part plate, not its own print. */
+  filamentGramsEstimated?: boolean;
   /** Set until the user has seen what an update did to this part. */
   update?: PartUpdate;
   /** When the file last changed in an update; keeps previews current. */
@@ -86,6 +90,8 @@ export interface JobPrinterLink {
   /** The printer's own id for the print (PrusaLink job id), when it has one. */
   runId?: string;
   durationSec?: number;
+  /** Grams of filament for the whole print, from the slicer's figures in its file. */
+  filamentG?: number;
   /** How the printer reported the end of the print. */
   endState?: "FINISH" | "FAILED";
   /** The printer has stopped and the user hasn't said yet whether it worked. */
@@ -144,6 +150,8 @@ export interface PrinterReport {
   print_error?: number;
   /** The printer's id for the print, on PrusaLink, Moonraker and Elegoo. */
   job_id?: string;
+  /** Grams of filament the print uses, from the slicer's figures in its file. */
+  filament_g?: number;
   /** Speed profile, 1 (silent) to 4 (ludicrous). */
   spd_lvl?: number;
   /** Print speed as a percentage. */
@@ -171,6 +179,12 @@ export interface AmsTray {
   tray_color?: string;
   /** Percent left; negative when unknown. */
   remain?: number;
+}
+
+/** A sliced file on a Bambu printer, and what's on each of its plates. */
+export interface SlicedFile {
+  path: string;
+  plates: { index: number | null; grams: number | null; objects: string[] }[];
 }
 
 export interface PrinterStatus {

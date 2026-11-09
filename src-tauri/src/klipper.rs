@@ -69,6 +69,13 @@ impl Link {
         }
     }
 
+    /// Grams of filament the file uses, if the slicer said.
+    async fn filament(&self, filename: &str) -> Result<Option<f64>, Failure> {
+        let path = format!("/server/files/metadata?filename={}", encode(filename));
+        let meta: Option<Metadata> = self.get(&path, StatusCode::NOT_FOUND).await?;
+        Ok(meta.and_then(|m| m.filament_weight_total).filter(|g| *g > 0.0))
+    }
+
     /// The newest print in Moonraker's job history, if it keeps one.
     async fn latest_job(&self) -> Result<Option<HistoryJob>, Failure> {
         let list: Option<History> = self.get("/server/history/list?limit=1&order=desc", StatusCode::NOT_FOUND).await?;
@@ -79,6 +86,17 @@ impl Link {
     async fn info(&self) -> Result<Option<Info>, Failure> {
         self.get("/printer/info", StatusCode::SERVICE_UNAVAILABLE).await
     }
+}
+
+/// Percent-encodes a query value.
+fn encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// Adds Moonraker's port unless the address names its own.
@@ -168,6 +186,11 @@ struct HistoryJob {
 }
 
 #[derive(Deserialize)]
+struct Metadata {
+    filament_weight_total: Option<f64>,
+}
+
+#[derive(Deserialize)]
 struct WebcamList {
     webcams: Vec<WebcamEntry>,
 }
@@ -240,7 +263,7 @@ struct Info {
 }
 
 /// The print a printer is (or was last) running.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Run {
     /// Moonraker's job id; `None` if it keeps no job history.
     id: Option<String>,
@@ -249,6 +272,10 @@ struct Run {
     started: i64,
     /// The printer has reported how it ended.
     over: bool,
+    /// Grams of filament, from the slicer's figures in the file.
+    filament_g: Option<f64>,
+    /// The file's metadata has been read, whether or not it had a weight.
+    weighed: bool,
 }
 
 /// Bambu `gcode_state` for Klipper's own state and its print's. `tracking`
@@ -291,6 +318,9 @@ fn report(objects: &Objects, state: &str, run: Option<&Run>) -> Value {
         r["gcode_start_time"] = json!(run.started.to_string());
         if let Some(id) = &run.id {
             r["job_id"] = json!(id);
+        }
+        if let Some(grams) = run.filament_g {
+            r["filament_g"] = json!(grams);
         }
     }
     if active {
@@ -340,13 +370,13 @@ async fn poll(link: &Link, run: &mut Option<Run>, waited: &mut u8) -> Result<Val
             match link.latest_job().await? {
                 Some(job) if job.status == "in_progress" && job.filename == stats.filename => {
                     *waited = 0;
-                    *run = Some(Run { id: Some(job.job_id), filename: job.filename, started: job.start_time as i64, over: false });
+                    *run = Some(Run { id: Some(job.job_id), filename: job.filename, started: job.start_time as i64, over: false, ..Default::default() });
                 }
                 Some(_) if *waited < HISTORY_WAIT => *waited += 1,
                 _ => {
                     *waited = 0;
                     let started = now() - stats.total_duration as i64;
-                    *run = Some(Run { id: None, filename: stats.filename.clone(), started, over: false });
+                    *run = Some(Run { id: None, filename: stats.filename.clone(), started, over: false, ..Default::default() });
                 }
             }
         }
@@ -354,9 +384,14 @@ async fn poll(link: &Link, run: &mut Option<Run>, waited: &mut u8) -> Result<Val
             // It ended before 3Devil started; the id ties it to a tracked print.
             let job = link.latest_job().await?.filter(|j| j.filename == stats.filename);
             let started = job.as_ref().map_or(now() - stats.total_duration as i64, |j| j.start_time as i64);
-            *run = Some(Run { id: job.map(|j| j.job_id), filename: stats.filename.clone(), started, over: true });
+            *run = Some(Run { id: job.map(|j| j.job_id), filename: stats.filename.clone(), started, over: true, ..Default::default() });
         }
         _ => {}
+    }
+    if let Some(r) = run.as_mut().filter(|r| !r.weighed && !r.filename.is_empty()) {
+        r.weighed = true;
+        // A file that has since gone just has no weight.
+        r.filament_g = link.filament(&r.filename).await.unwrap_or(None);
     }
 
     let out = report(&objects, state, run.as_ref());
@@ -465,6 +500,13 @@ mod tests {
     }
 
     #[test]
+    fn file_names_go_in_queries() {
+        assert_eq!(encode("tavern/Wall A+1.gcode"), "tavern/Wall%20A%2B1.gcode");
+        let meta: Metadata = serde_json::from_value(json!({"filament_weight_total": 12.3, "size": 1})).unwrap();
+        assert_eq!(meta.filament_weight_total, Some(12.3));
+    }
+
+    #[test]
     fn printing_reads_like_bambu() {
         let o = objects(json!({
             "print_stats": {
@@ -480,9 +522,10 @@ mod tests {
             "heater_bed": {"temperature": 60.1, "target": 60.0},
             "webhooks": {"state": "ready"}
         }));
-        let run = Run { id: Some("00002A".into()), filename: o.print_stats.filename.clone(), started: 1000, over: false };
+        let run = Run { id: Some("00002A".into()), filename: o.print_stats.filename.clone(), started: 1000, filament_g: Some(42.5), ..Default::default() };
         let r = report(&o, "RUNNING", Some(&run));
         assert_eq!(r["subtask_name"], "Wall_A_PLA_1h2m.gcode");
+        assert_eq!(r["filament_g"], 42.5);
         assert_eq!(r["job_id"], "00002A");
         assert_eq!(r["gcode_start_time"], "1000");
         assert_eq!(r["mc_percent"], 25);
@@ -510,7 +553,7 @@ mod tests {
     #[test]
     fn finished_print_keeps_its_name() {
         let o = objects(json!({"print_stats": {"filename": "Wall_A.gcode", "state": "complete"}}));
-        let run = Run { id: Some("7".into()), filename: "Wall_A.gcode".into(), started: 1000, over: true };
+        let run = Run { id: Some("7".into()), filename: "Wall_A.gcode".into(), started: 1000, over: true, ..Default::default() };
         assert_eq!(report(&o, "FINISH", Some(&run))["subtask_name"], "Wall_A.gcode");
         assert!(report(&o, "IDLE", Some(&run)).get("subtask_name").is_none());
         assert!(report(&o, "RUNNING", Some(&run)).get("subtask_name").is_none());
@@ -518,7 +561,7 @@ mod tests {
 
     #[test]
     fn prints_without_a_history_have_no_id() {
-        let run = Run { id: None, filename: "a.gcode".into(), started: 5, over: false };
+        let run = Run { id: None, filename: "a.gcode".into(), started: 5, over: false, ..Default::default() };
         let r = report(&Objects::default(), "RUNNING", Some(&run));
         assert!(r.get("job_id").is_none());
         assert_eq!(r["gcode_start_time"], "5");

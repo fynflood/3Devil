@@ -7,6 +7,7 @@ use std::process::Command;
 use std::time::SystemTime;
 
 mod bambu;
+mod bambu_ftp;
 mod prusaslicer;
 mod drivethru;
 mod folders;
@@ -532,6 +533,8 @@ pub fn run() {
             storage::remove_path_mapping,
             scan_models,
             bambu::bambu_presets,
+            bambu_ftp::bambu_sliced_files,
+            bambu_ftp::bambu_sliced_plates,
             bambu::set_bambu_preset,
             prusaslicer::prusa_presets,
             prusaslicer::set_prusa_preset,

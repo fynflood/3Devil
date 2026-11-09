@@ -95,61 +95,160 @@ export function projectProgress(project: Project) {
   return { required, printed, partsDone, parts: parts.length };
 }
 
-/** Fewest timed parts before untimed ones are guessed from them. */
+/** Fewest parts with a figure before the rest are guessed from them. */
 const MIN_TIMED_FOR_GUESS = 3;
+
+/** Figures kept per copy of a part, and the flag that marks one as a plate share. */
+const PER_COPY = {
+  printSeconds: "printSecondsEstimated",
+  filamentGrams: "filamentGramsEstimated",
+} as const;
+type PerCopy = keyof typeof PER_COPY;
+
+/**
+ * How much of a per-copy figure (print time, filament) a project's remaining
+ * copies still need. Parts with none yet are guessed from the others by file
+ * size, once there are enough.
+ */
+function leftToPrint(project: Project, key: PerCopy) {
+  const parts = activeParts(project)
+    .map((part) => ({ part, left: Math.max(0, part.required - part.printed) }))
+    .filter((x) => x.left > 0);
+  const known = activeParts(project).filter((p) => p[key] && p.size > 0);
+  let total = 0;
+  let guessed = 0;
+  let missing = 0;
+  // Amount per byte across parts that have one: rough, but better than nothing.
+  const rate =
+    known.length >= MIN_TIMED_FOR_GUESS
+      ? known.reduce((t, p) => t + p[key]!, 0) / known.reduce((t, p) => t + p.size, 0)
+      : null;
+  for (const { part, left } of parts) {
+    if (part[key]) total += part[key]! * left;
+    else {
+      missing++;
+      if (rate) guessed += rate * part.size * left;
+    }
+  }
+  return { known: total, guessed, missing, guessable: rate !== null, remainingParts: parts.length };
+}
 
 /**
  * Printer time still needed for a project's remaining copies. Parts with no
  * time yet are guessed from the timed ones by file size, once there are enough.
  */
-export function timeLeft(project: Project) {
-  const parts = activeParts(project)
-    .map((part) => ({ part, left: Math.max(0, part.required - part.printed) }))
-    .filter((x) => x.left > 0);
-  const timed = activeParts(project).filter((p) => p.printSeconds && p.size > 0);
-  let known = 0;
-  let guessed = 0;
-  let untimed = 0;
-  // Seconds per byte across timed parts: rough, but better than nothing.
-  const rate =
-    timed.length >= MIN_TIMED_FOR_GUESS
-      ? timed.reduce((t, p) => t + p.printSeconds!, 0) / timed.reduce((t, p) => t + p.size, 0)
-      : null;
-  for (const { part, left } of parts) {
-    if (part.printSeconds) known += part.printSeconds * left;
-    else {
-      untimed++;
-      if (rate) guessed += rate * part.size * left;
+export const timeLeft = (project: Project) => leftToPrint(project, "printSeconds");
+
+/** Grams of filament still needed for a project's remaining copies, guessed the same way. */
+export const filamentLeft = (project: Project) => leftToPrint(project, "filamentGrams");
+
+/** Grams of filament a finished job used: the slicer's figure, or its parts' weights. */
+function jobGrams(project: Project, job: Job) {
+  if (job.printer?.filamentG) return job.printer.filamentG;
+  let g = 0;
+  for (const it of job.items) {
+    const grams = project.parts.find((p) => p.id === it.partId)?.filamentGrams;
+    if (!grams) return undefined;
+    g += grams * it.qty;
+  }
+  return g || undefined;
+}
+
+/** How long a job would take if it ran to the end, from its parts' print times. */
+function jobSeconds(project: Project, job: Job) {
+  let secs = 0;
+  for (const it of job.items) {
+    const per = project.parts.find((p) => p.id === it.partId)?.printSeconds;
+    if (!per) return undefined;
+    secs += per * it.qty;
+  }
+  return secs || undefined;
+}
+
+const DAY = 24 * 3600;
+
+/**
+ * What a project's finished print jobs add up to, and when it might be done
+ * at the pace so far.
+ */
+export function projectStats(project: Project, now = Date.now()) {
+  const finished = project.jobs.filter((j) => j.status === "done" || j.status === "failed");
+  let goodSec = 0;
+  let failedSec = 0;
+  let grams = 0;
+  let failedGrams = 0;
+  let copiesFailed = 0;
+  let start = Infinity;
+  for (const job of finished) {
+    const secs = job.printer?.durationSec ?? 0;
+    const g = jobGrams(project, job);
+    start = Math.min(start, job.printer?.startedAt ?? job.createdAt);
+    copiesFailed += job.items.reduce((n, it) => n + it.qty - (it.good ?? (job.status === "done" ? it.qty : 0)), 0);
+    if (job.status === "done") {
+      goodSec += secs;
+      grams += g ?? 0;
+    } else {
+      failedSec += secs;
+      // A failed print stopped partway: count the share of its run it got through.
+      const full = jobSeconds(project, job);
+      if (g && secs && full) failedGrams += g * Math.min(1, secs / full);
     }
   }
-  return { known, guessed, untimed, guessable: rate !== null, remainingParts: parts.length };
+  const done = finished.filter((j) => j.status === "done").length;
+  const days = finished.length ? Math.max(1, (now - start) / 1000 / DAY) : 0;
+  const printing = goodSec + failedSec;
+  const time = timeLeft(project);
+  const left = time.known + time.guessed;
+  // Printer time per day so far, and the extra that failed prints have cost.
+  const perDay = days ? printing / days : 0;
+  const overhead = goodSec ? failedSec / goodSec : 0;
+  const finishAt = perDay > 0 && left > 0 ? now + ((left * (1 + overhead)) / perDay) * DAY * 1000 : undefined;
+  return {
+    jobsDone: done,
+    jobsFailed: finished.length - done,
+    copiesFailed,
+    goodSec,
+    failedSec,
+    grams: grams + failedGrams,
+    failedGrams,
+    since: finished.length ? start : undefined,
+    perDay,
+    overhead,
+    finishAt,
+  };
 }
 
 /**
- * Saves per-copy print times from a tracked job. A part printed on its own gets
- * the exact time; on a shared plate, each part gets a share of the plate's time
- * by file size, unless it already has a time of its own.
+ * Saves a per-copy figure from a tracked job's total. A part printed on its
+ * own gets the exact figure; on a shared plate, each part gets a share by file
+ * size, unless it already has a figure of its own.
  */
-function recordPrintTimes(project: Project, job: Job) {
-  const secs = job.printer?.durationSec;
-  if (!secs) return;
+function recordPerCopy(project: Project, job: Job, key: PerCopy, total: number | undefined, round: (n: number) => number) {
+  if (!total) return;
+  const estimated = PER_COPY[key];
   const items = job.items
     .map((it) => ({ it, part: project.parts.find((x) => x.id === it.partId) }))
     .filter((x): x is { it: JobItem; part: Part } => !!x.part && x.it.qty > 0);
   if (!items.length || !items.some((x) => (x.it.good ?? 0) > 0)) return;
   if (items.length === 1) {
     const { it, part } = items[0];
-    part.printSeconds = Math.round(secs / it.qty);
-    part.printSecondsEstimated = undefined;
+    part[key] = round(total / it.qty);
+    part[estimated] = undefined;
     return;
   }
   const weight = items.reduce((t, x) => t + Math.max(1, x.part.size) * x.it.qty, 0);
-  // Per copy: the plate time times this part's share of one copy's size.
+  // Per copy: the plate's total times this part's share of one copy's size.
   for (const { part } of items) {
-    if (part.printSeconds && !part.printSecondsEstimated) continue;
-    part.printSeconds = Math.round((secs * Math.max(1, part.size)) / weight);
-    part.printSecondsEstimated = true;
+    if (part[key] && !part[estimated]) continue;
+    part[key] = round((total * Math.max(1, part.size)) / weight);
+    part[estimated] = true;
   }
+}
+
+/** Saves per-copy print times and filament from a tracked job. */
+function recordPrintFigures(project: Project, job: Job) {
+  recordPerCopy(project, job, "printSeconds", job.printer?.durationSec, Math.round);
+  recordPerCopy(project, job, "filamentGrams", job.printer?.filamentG, (g) => Math.max(0.1, Math.round(g * 10) / 10));
 }
 
 function partsFromFiles(folder: string, files: ModelFile[], existing: Set<string>): Part[] {
@@ -457,6 +556,21 @@ export function useStore() {
     },
 
     /** Clears the update marks on the given parts, or on the whole project. */
+    /** Fills in filament for parts and tracked prints that have none yet. */
+    fillFilament(projectId: string, parts: { partId: string; grams: number; estimated: boolean }[], jobs: { jobId: string; grams: number }[]) {
+      withProject(projectId, (p) => {
+        for (const f of parts) {
+          const part = p.parts.find((x) => x.id === f.partId);
+          if (!part || part.filamentGrams) continue;
+          part.filamentGrams = f.grams;
+          part.filamentGramsEstimated = f.estimated || undefined;
+        }
+        for (const f of jobs) {
+          const job = p.jobs.find((j) => j.id === f.jobId);
+          if (job?.printer && !job.printer.filamentG) job.printer.filamentG = f.grams;
+        }
+      });
+    },
     markUpdatesSeen(projectId: string, partIds?: string[]) {
       const ids = partIds && new Set(partIds);
       withProject(projectId, (p) => {
@@ -590,7 +704,7 @@ export function useStore() {
           part.printed += it.good;
           part.failed += it.qty - it.good;
         }
-        recordPrintTimes(p, job);
+        recordPrintFigures(p, job);
         job.status = total > 0 ? "done" : "failed";
         job.finishedAt = Date.now();
         if (job.printer) job.printer.awaitingReview = undefined;
