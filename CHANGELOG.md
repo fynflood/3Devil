@@ -2,6 +2,13 @@
 
 Each version's section becomes its release notes and what 3Devil shows after updating. Write for the people using the app, and add a section before tagging a release.
 
+## 0.1.9
+
+- **Filament left to print:** each project shows roughly how much filament it still needs next to the time left, and each part has a *Filament per copy* you can type in. Tracked prints record it from the slicer's figures: read from the print file on Bambu printers, and from the file's details on Klipper and Prusa.
+- **Filled in from your Bambu printer:** parts with no weight yet get one from the sliced files the printer still keeps, so prints from before this update count too.
+- **Project stats:** hover over a project's progress to see prints that worked and failed, printer time and filament used (including on failed prints), how much you print a day, what's left, and roughly when you'll finish.
+- **Tidier project header:** time and filament left share one line, the progress lines up with the part panel, and an empty description no longer shows "Description".
+
 ## 0.1.8
 
 - **Elegoo printers** such as the Saturn 4, Mars 5 and Centauri Carbon: find them with Scan, see the current print, time left and temperatures, including the resin vat and UV light, and watch the camera. Parts for an Elegoo resin printer open in CHITUBOX or Lychee Slicer when one is turned on.
