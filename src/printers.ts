@@ -328,12 +328,19 @@ function onChange(
       printer.kind === "klipper" ? mainSlicer(store.state!.settings)
       : printer.kind === "elegoo" ? elegooSlicer(store.state!.settings, r.subtask_name ?? "")
       : (printer.kind ?? "bambu");
-    const job = m.job ?? actions.createJob(m.project.id, [m.part.id], slicer, r.subtask_name?.split(" + ")[0]);
+    // A print started outside 3Devil may be a rerun of an earlier one, as after
+    // stopping a plate to adjust it: that run says what's on it.
+    const rerun = m.job || !r.subtask_name ? undefined : m.project.jobs.find((j) => j.printer?.subtask === r.subtask_name);
+    const job =
+      m.job ??
+      (rerun
+        ? actions.createJob(m.project.id, rerun.items.map((it) => it.partId), slicer, rerun.name)
+        : actions.createJob(m.project.id, [m.part.id], slicer, r.subtask_name?.split(" + ")[0]));
     if (!job) return;
     if (!m.job) {
-      // A print started outside 3Devil: assume one copy until its plate is read.
+      // Otherwise assume one copy until its plate is read.
       actions.updateJob(m.project.id, job.id, (j) => {
-        j.items.forEach((it) => (it.qty = 1));
+        j.items.forEach((it) => (it.qty = rerun?.items.find((x) => x.partId === it.partId)?.qty ?? 1));
       });
     }
     actions.updateJob(m.project.id, job.id, (j) => {
@@ -341,7 +348,11 @@ function onChange(
       if (!m.job) j.printer.fromPrinter = true;
     });
     if (m.job) narrow(m.project, m.job);
-    notify(`${printer.name} is printing “${m.part.name}” (${m.project.name}) — tracking it as ${job.name}.`);
+    notify(
+      rerun
+        ? `${printer.name} is printing ${job.name} (${m.project.name}) again — tracking the new run.`
+        : `${printer.name} is printing “${m.part.name}” (${m.project.name}) — tracking it as ${job.name}.`,
+    );
     return;
   }
 
