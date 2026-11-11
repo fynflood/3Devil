@@ -235,9 +235,9 @@ fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
 pub struct Plate {
     index: Option<u64>,
     /// Grams of filament.
-    grams: Option<f64>,
+    pub(crate) grams: Option<f64>,
     /// One name per object on the plate, so copies repeat.
-    objects: Vec<String>,
+    pub(crate) objects: Vec<String>,
 }
 
 fn unescape(text: &str) -> String {
@@ -268,16 +268,14 @@ fn plates(slice_info: &str) -> Vec<Plate> {
         .collect()
 }
 
-/// Grams of filament for one plate of `slice_info.config`: the plate whose
-/// index is `plate`, or the only one.
-fn plate_weight(slice_info: &str, plate: Option<u64>) -> Option<f64> {
-    let plates = plates(slice_info);
-    let chosen = match plate {
-        Some(n) if plates.len() > 1 => plates.iter().find(|p| p.index == Some(n))?,
-        _ if plates.len() == 1 => &plates[0],
-        _ => return None,
-    };
-    chosen.grams
+/// One plate of `slice_info.config`: the plate whose index is `plate`, or the only one.
+fn plate_of(slice_info: &str, plate: Option<u64>) -> Option<Plate> {
+    let mut plates = plates(slice_info);
+    match plate {
+        Some(n) if plates.len() > 1 => plates.into_iter().find(|p| p.index == Some(n)),
+        _ if plates.len() == 1 => plates.pop(),
+        _ => None,
+    }
 }
 
 /// The files on the printer that may be the sliced print `subtask`: the file
@@ -317,17 +315,14 @@ async fn slice_info(ftp: &mut Ftp, path: &str) -> Result<Option<String>> {
     Ok(unpack(&entry, &local))
 }
 
-async fn weight_in(ftp: &mut Ftp, path: &str, plate: Option<u64>) -> Result<Option<f64>> {
-    Ok(slice_info(ftp, path).await?.and_then(|info| plate_weight(&info, plate)))
-}
-
-/// Grams of filament the print uses, from the slicer's figures in its file.
-pub(crate) async fn print_weight(ip: IpAddr, access_code: &str, gcode_file: &str, subtask: &str, plate: Option<u64>) -> Result<Option<f64>> {
+/// The plate being printed, from its sliced file: the slicer's filament
+/// weight and the objects on it.
+pub(crate) async fn print_plate(ip: IpAddr, access_code: &str, gcode_file: &str, subtask: &str, plate: Option<u64>) -> Result<Option<Plate>> {
     let mut ftp = Ftp::connect(ip, access_code).await?;
     for path in candidates(gcode_file, subtask) {
-        if let Some(grams) = weight_in(&mut ftp, &path, plate).await? {
+        if let Some(found) = slice_info(&mut ftp, &path).await?.and_then(|info| plate_of(&info, plate)) {
             let _ = ftp.command(Some("QUIT")).await;
-            return Ok(Some(grams));
+            return Ok(Some(found));
         }
     }
     let _ = ftp.command(Some("QUIT")).await;
@@ -385,6 +380,10 @@ pub async fn bambu_sliced_plates(ip: String, access_code: String, paths: Vec<Str
 mod tests {
     use super::*;
 
+    fn plate_weight(slice_info: &str, plate: Option<u64>) -> Option<f64> {
+        plate_of(slice_info, plate)?.grams
+    }
+
     const SLICE_INFO_ONE: &str = r##"<config>
   <plate>
     <metadata key="index" value="1"/>
@@ -417,10 +416,9 @@ mod tests {
         let info = r#"<config><plate><metadata key="index" value="2"/><metadata key="weight" value="23.53"/>
             <object identify_id="1" name="Clip &amp; Pin.stl" skipped="false" />
             <object identify_id="2" name="Clip &amp; Pin.stl" skipped="false" /></plate></config>"#;
-        assert_eq!(
-            plates(info),
-            [Plate { index: Some(2), grams: Some(23.53), objects: vec!["Clip & Pin.stl".into(), "Clip & Pin.stl".into()] }]
-        );
+        let clips = Plate { index: Some(2), grams: Some(23.53), objects: vec!["Clip & Pin.stl".into(), "Clip & Pin.stl".into()] };
+        assert_eq!(plates(info), [clips]);
+        assert_eq!(plate_of(info, Some(1)).map(|p| p.objects.len()), Some(2));
     }
 
     #[test]
@@ -466,8 +464,8 @@ mod tests {
         let subtask = std::env::var("BAMBU_SUBTASK").unwrap();
         tauri::async_runtime::block_on(async {
             let started = std::time::Instant::now();
-            let grams = print_weight(ip, &code, "/data/Metadata/plate_1.gcode", &subtask, Some(1)).await;
-            println!("{subtask}: {grams:?} in {:?}", started.elapsed());
+            let plate = print_plate(ip, &code, "/data/Metadata/plate_1.gcode", &subtask, Some(1)).await.unwrap();
+            println!("{subtask}: {:?} g, {:?} in {:?}", plate.as_ref().and_then(|p| p.grams), plate.map(|p| p.objects), started.elapsed());
             let files = bambu_sliced_files(ip.to_string(), code.clone()).await.unwrap();
             println!("{} files, e.g. {:?}", files.len(), files.iter().take(3).collect::<Vec<_>>());
             let started = std::time::Instant::now();

@@ -277,6 +277,7 @@ async fn run(app: AppHandle, id: String, ip: String, serial: String, access_code
                         if key.as_deref() != weighing.as_ref().map(|(k, _)| k.as_str()) {
                             if let Some(o) = state.as_object_mut() {
                                 o.remove("filament_g");
+                                o.remove("plate_objects");
                             }
                             weighing = key.map(|key| {
                                 let task = weigh(app.clone(), id.clone(), ip.clone(), access_code.clone(), shared.clone(), key.clone());
@@ -334,8 +335,9 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// Looks up how much filament the print `key` uses and adds it to the
-/// printer's status as `filament_g`. The file can take a moment to appear.
+/// Looks up the plate the print `key` is making and adds it to the printer's
+/// status: `filament_g`, the slicer's filament weight, and `plate_objects`,
+/// one name per object on it. The file can take a moment to appear.
 async fn weigh(app: AppHandle, id: String, ip: String, access_code: String, shared: Arc<Mutex<Value>>, key: String) {
     let Ok(addr) = ip.parse::<IpAddr>() else { return };
     let (gcode_file, subtask, plate) = {
@@ -346,15 +348,20 @@ async fn weigh(app: AppHandle, id: String, ip: String, access_code: String, shar
         if attempt > 0 {
             tokio::time::sleep(Duration::from_secs(30)).await;
         }
-        match crate::bambu_ftp::print_weight(addr, &access_code, &gcode_file, &subtask, plate).await {
-            Ok(Some(grams)) => {
-                println!("[printer {ip}] {subtask} uses {grams} g of filament");
+        match crate::bambu_ftp::print_plate(addr, &access_code, &gcode_file, &subtask, plate).await {
+            Ok(Some(found)) => {
+                println!("[printer {ip}] {subtask}: {} objects, {:?} g of filament", found.objects.len(), found.grams);
                 let state = {
                     let mut s = shared.lock().unwrap();
                     if run_key(&s).as_deref() != Some(key.as_str()) {
                         return;
                     }
-                    s["filament_g"] = json!(grams);
+                    if let Some(grams) = found.grams {
+                        s["filament_g"] = json!(grams);
+                    }
+                    if !found.objects.is_empty() {
+                        s["plate_objects"] = json!(found.objects);
+                    }
                     s.clone()
                 };
                 emit_status(&app, &id, true, None, &state);

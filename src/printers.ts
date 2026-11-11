@@ -85,9 +85,27 @@ export function linkedJob(projects: Project[], printerId: string, report: Printe
  * print named after the job itself is taken to be all of it.
  */
 export function itemsInPrint(project: Project, job: Job, subtask: string): JobItem[] {
+  if (job.printer?.fromPrinter && job.printer.subtask === subtask) return job.items;
   const matches = printNameTest(subtask);
   const named = job.items.filter((it) => matches(project.parts.find((p) => p.id === it.partId)?.name ?? ""));
   return named.length ? named : job.items;
+}
+
+/**
+ * The copies of each part on a plate, from its object names, or null if none
+ * of them is a part. Parts already in the job come first, then visible ones.
+ */
+export function countPlate(project: Project, job: Job, objects: string[]): JobItem[] | null {
+  const hidden = new Set(project.hiddenGroups);
+  const inJob = new Set(job.items.map((it) => it.partId));
+  const rank = (p: Part) => (inJob.has(p.id) ? 0 : hidden.has(p.group) ? 2 : 1);
+  const counts = new Map<string, number>();
+  for (const name of objects) {
+    const key = norm(name);
+    const part = project.parts.filter((p) => !p.missing && norm(p.name) === key).sort((a, b) => rank(a) - rank(b))[0];
+    if (part) counts.set(part.id, (counts.get(part.id) ?? 0) + 1);
+  }
+  return counts.size ? [...counts].map(([partId, qty]) => ({ partId, qty })) : null;
 }
 
 /** What connected printers are making right now, by job id. */
@@ -254,11 +272,22 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
       const r = st.print;
       if (!r.gcode_state) continue;
       // The weight can arrive after the print is picked up: Bambu's is read from its file.
-      const linked = r.filament_g ? linkedJob(projects, id, r) : null;
-      if (linked?.job.status === "queued" && linked.job.printer!.filamentG !== r.filament_g) {
-        store.actions.updateJob(linked.project.id, linked.job.id, (j) => {
-          j.printer!.filamentG = r.filament_g;
-        });
+      const linked = r.filament_g || r.plate_objects ? linkedJob(projects, id, r) : null;
+      if (linked?.job.status === "queued") {
+        const { project, job } = linked;
+        if (r.filament_g && job.printer!.filamentG !== r.filament_g) {
+          store.actions.updateJob(project.id, job.id, (j) => {
+            j.printer!.filamentG = r.filament_g;
+          });
+        }
+        // A print started elsewhere was taken as one copy; its file says how many.
+        const counted = job.printer!.fromPrinter && r.plate_objects ? countPlate(project, job, r.plate_objects) : null;
+        const key = (items: JobItem[]) => JSON.stringify(items.map((it) => [it.partId, it.qty]).sort());
+        if (counted && key(counted) !== key(job.items)) {
+          store.actions.updateJob(project.id, job.id, (j) => {
+            j.items = counted;
+          });
+        }
       }
       const before = prev.current[id];
       if (before && before.state === r.gcode_state && before.run === runKey(r)) continue;
@@ -302,13 +331,14 @@ function onChange(
     const job = m.job ?? actions.createJob(m.project.id, [m.part.id], slicer, r.subtask_name?.split(" + ")[0]);
     if (!job) return;
     if (!m.job) {
-      // A print started outside 3Devil: assume one copy; editable in Print jobs.
+      // A print started outside 3Devil: assume one copy until its plate is read.
       actions.updateJob(m.project.id, job.id, (j) => {
         j.items.forEach((it) => (it.qty = 1));
       });
     }
     actions.updateJob(m.project.id, job.id, (j) => {
       j.printer = { printerId: printer.id, printerName: printer.name, subtask: r.subtask_name ?? "", startedAt: started, runId: r.job_id };
+      if (!m.job) j.printer.fromPrinter = true;
     });
     if (m.job) narrow(m.project, m.job);
     notify(`${printer.name} is printing “${m.part.name}” (${m.project.name}) — tracking it as ${job.name}.`);
