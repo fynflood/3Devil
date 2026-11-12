@@ -426,6 +426,7 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .pill { font-size: 12px; padding: 2px 8px; border-radius: 99px; }
 .pill-done { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
 .pill-failed { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); }
+.pill-printing { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); font-variant-numeric: tabular-nums; }
 
 /* Empty, settings, modal, toast */
 .empty { max-width: 520px; margin: 60px auto; text-align: center; color: var(--muted); line-height: 1.5; }

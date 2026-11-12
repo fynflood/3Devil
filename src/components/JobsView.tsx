@@ -1,10 +1,14 @@
 import { formatDuration, formatGrams } from "../api";
+import type { PartProgress } from "../printers";
 import type { Store } from "../store";
-import { SLICER_NAMES, type Job, type Project, type SlicerId } from "../types";
+import { SLICER_NAMES, type Job, type JobItem, type Project, type SlicerId } from "../types";
 
 interface Props {
   store: Store;
   project: Project;
+  /** What connected printers are making right now, by job id. */
+  running: Map<string, JobItem[]>;
+  partProgress: Map<string, PartProgress>;
   onSend: (ids: string[], slicer: SlicerId, recordJob: boolean) => void;
   onFocusPart: (id: string) => void;
   onReview: (jobId: string) => void;
@@ -12,7 +16,7 @@ interface Props {
 
 const fmt = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-export function JobsView({ store, project, onSend, onFocusPart, onReview }: Props) {
+export function JobsView({ store, project, running, partProgress, onSend, onFocusPart, onReview }: Props) {
   const { actions } = store;
   const queued = project.jobs.filter((j) => j.status === "queued");
   const finished = project.jobs.filter((j) => j.status !== "queued");
@@ -28,6 +32,8 @@ export function JobsView({ store, project, onSend, onFocusPart, onReview }: Prop
 
   const row = (job: Job) => {
     const copies = job.items.reduce((n, it) => n + it.qty, 0);
+    const live = running.get(job.id);
+    const now = live?.length ? partProgress.get(live[0].partId) : undefined;
     return (
       <div key={job.id} className={`job job-${job.status}`}>
         <div className="job-head">
@@ -39,7 +45,7 @@ export function JobsView({ store, project, onSend, onFocusPart, onReview }: Prop
           <span className="muted">
             {copies} {copies === 1 ? "copy" : "copies"} · {job.slicer ? SLICER_NAMES[job.slicer] : job.droppedAt ? "dragged to slicer" : "manual"} · {fmt(job.createdAt)}
             {job.finishedAt ? ` → ${fmt(job.finishedAt)}` : ""}
-            {job.printer && ` · ${job.printer.printerName}${job.printer.durationSec ? ` · ${formatDuration(job.printer.durationSec)}` : job.status === "queued" ? " · printing" : ""}`}
+            {job.printer && ` · ${job.printer.printerName}${job.printer.durationSec ? ` · ${formatDuration(job.printer.durationSec)}` : ""}`}
             {job.printer?.filamentG ? ` · ${formatGrams(job.printer.filamentG)}` : ""}
           </span>
           <div className="spacer" />
@@ -50,8 +56,18 @@ export function JobsView({ store, project, onSend, onFocusPart, onReview }: Prop
                   Printer done — review
                 </button>
               )}
-              <button className="primary" title="Count every copy in this job as printed" onClick={() => actions.finishJob(project.id, job.id, "done")}>Printed ✓</button>
-              <button title="Count every copy in this job as failed" onClick={() => actions.finishJob(project.id, job.id, "failed")}>Failed</button>
+              {live ? (
+                <span className="pill pill-printing" title="On the printer now. When it stops, 3Devil asks how it went.">
+                  Printing
+                  {now && ` ${now.percent}%`}
+                  {now?.minutesLeft ? ` · ${formatDuration(now.minutesLeft * 60)} left` : ""}
+                </span>
+              ) : (
+                <>
+                  <button className="primary" title="Count every copy in this job as printed" onClick={() => actions.finishJob(project.id, job.id, "done")}>Printed ✓</button>
+                  <button title="Count every copy in this job as failed" onClick={() => actions.finishJob(project.id, job.id, "failed")}>Failed</button>
+                </>
+              )}
               {job.slicer && (
                 <button title="Open these parts in the slicer again without adding a new job" onClick={() => onSend(job.items.map((i) => i.partId), job.slicer!, false)}>Reopen in slicer</button>
               )}

@@ -413,7 +413,7 @@ export function ProjectView({ store, project, driveThru, running, partProgress, 
       <div className="project-main">
         <div className={`project-content${tab !== "jobs" && project.parts.length ? " with-toolbar" : ""}`}>
           {tab === "jobs" ? (
-            <JobsView store={store} project={project} onSend={send} onFocusPart={(id) => { setFocusId(id); }} onReview={onReview} />
+            <JobsView store={store} project={project} running={running} partProgress={partProgress} onSend={send} onFocusPart={(id) => { setFocusId(id); }} onReview={onReview} />
           ) : project.parts.length === 0 ? (
             <div className="empty">
               <h3>No parts yet</h3>
