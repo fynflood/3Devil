@@ -12,7 +12,7 @@ The builds aren't code-signed yet, so Windows and macOS will warn the first time
 
 ### Windows 10 / 11
 
-1. Download `3Devil_<version>_x64-setup.exe` (or the `.msi` if you prefer).
+1. Download `3Devil_<version>_x64-setup.exe` (or the `.msi` if you prefer). On an ARM laptop, such as one with a Snapdragon X chip, take the `arm64` one instead.
 2. Run it. If **Windows protected your PC** appears, click **More info → Run anyway**.
 3. Start 3Devil from the Start menu.
 

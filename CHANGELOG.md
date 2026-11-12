@@ -2,6 +2,12 @@
 
 Each version's section becomes its release notes and what 3Devil shows after updating. Write for the people using the app, and add a section before tagging a release.
 
+## 0.1.10
+
+- **Windows on ARM:** a native installer for laptops such as those with Snapdragon X chips. Thanks to jerosenwald-prog for adding it.
+- **Plates counted properly:** a plate you print straight from Bambu Studio now counts every copy on it, read from the printer's copy of the file, instead of one copy of one part.
+- **Stopping and restarting a plate:** if you stop a print to adjust it and start it again, the new run keeps the parts and copies of the first.
+
 ## 0.1.9
 
 - **Filament left to print:** each project shows roughly how much filament it still needs next to the time left, and each part has a *Filament per copy* you can type in. Tracked prints record it from the slicer's figures: read from the print file on Bambu printers, and from the file's details on Klipper and Prusa.
