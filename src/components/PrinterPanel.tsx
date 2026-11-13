@@ -82,18 +82,20 @@ function Camera({ printer, status }: { printer: PrinterConfig; status?: PrinterS
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<CameraView | null>(null);
   const kind = printer.kind ?? "bambu";
-  const ready = !!status?.connected && !!status.print.gcode_state;
+  // A Prusa camera is a device of its own, so it doesn't wait for the printer.
+  const ready = kind === "prusa" ? !!printer.camera : !!status?.connected && !!status.print.gcode_state;
   const rtsp = /^rtsps?:/.test(status?.print.ipcam?.rtsp_url ?? "");
   const visible = usePageVisible();
 
   useEffect(() => {
-    if (!shown || !ready || !visible || kind === "prusa") return;
+    if (!shown || !ready || !visible) return;
     let live = true;
     let current = "";
     setError(null);
     (async () => {
       try {
-        const opened = await api.cameraStart({ id: printer.id, kind, host: printer.ip, accessCode: printer.accessCode, serial: printer.serial, rtsp });
+        const host = kind === "prusa" ? printer.camera! : printer.ip;
+        const opened = await api.cameraStart({ id: printer.id, kind, host, accessCode: printer.accessCode, serial: printer.serial, rtsp });
         if (!live) return;
         setView(opened);
         while (live) {
@@ -116,9 +118,11 @@ function Camera({ printer, status }: { printer: PrinterConfig; status?: PrinterS
       if (current) URL.revokeObjectURL(current);
       setUrl(null);
     };
-  }, [printer.id, kind, printer.ip, printer.accessCode, printer.serial, rtsp, ready, shown, visible, attempt]);
+  }, [printer.id, kind, printer.ip, printer.camera, printer.accessCode, printer.serial, rtsp, ready, shown, visible, attempt]);
 
-  if (kind === "prusa") return <div className="camera off"><p className="muted small">3Devil can't show a Prusa printer's camera.</p></div>;
+  if (kind === "prusa" && !printer.camera) {
+    return <div className="camera off"><p className="muted small">To see this printer's camera, add its address: Edit, then Camera.</p></div>;
+  }
   if (!shown) return <div className="camera off"><button onClick={() => setShown(true)}>Show camera</button></div>;
 
   const turned = view && {

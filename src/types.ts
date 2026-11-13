@@ -126,6 +126,11 @@ export interface PrinterConfig {
   accessCode: string;
   /** PrusaLink user name; "maker" on Prusa's own firmware. */
   username?: string;
+  /**
+   * A camera with its own address, like the Buddy3D on a Prusa Core One: its
+   * IP address or host name, or a full `rtsp://` address.
+   */
+  camera?: string;
   /** Turned off: no connection, and left out of the sidebar. */
   disabled?: boolean;
 }

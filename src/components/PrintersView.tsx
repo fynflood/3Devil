@@ -214,6 +214,21 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
                 <div className="muted small">
                   {draft.model ? `${draft.model}${draft.serial ? ` · serial ${draft.serial}` : ""}` : "Click Test connection to check the printer."}
                 </div>
+                {kind === "prusa" && (
+                  <label className="block">
+                    Camera (optional)
+                    <input
+                      className="mono"
+                      value={draft.camera ?? ""}
+                      onChange={(e) => setDraft({ ...draft, camera: e.target.value.trim() || undefined })}
+                      placeholder="192.168.1.61"
+                    />
+                    <div className="muted small">
+                      The Buddy3D camera's own IP address, shown in the Prusa app under the camera's details. Set its{" "}
+                      <em>Local Stream Mode</em> to RTSP there. Another camera's full <code>rtsp://</code> address works too.
+                    </div>
+                  </label>
+                )}
               </>
             ) : (
               <>

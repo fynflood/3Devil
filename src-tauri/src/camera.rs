@@ -7,7 +7,8 @@
 //! printers send JPEGs over their own protocol on port 6000. Klipper cameras
 //! are reached through the snapshot or MJPEG address Moonraker lists. Elegoo
 //! printers are asked to turn their camera on, then streamed like the others:
-//! resin printers over RTSP, the Centauri Carbon as MJPEG.
+//! resin printers over RTSP, the Centauri Carbon as MJPEG. Prusa's Buddy3D
+//! camera is a separate device on the network that streams RTSP itself.
 
 use crate::elegoo::video_url;
 use crate::klipper::{webcam, Webcam};
@@ -377,6 +378,35 @@ async fn elegoo_camera(host: &str, mainboard: &str, picture: &Shared) -> Result<
     mjpeg(&http, &url, picture, "This printer's camera uses a kind of stream 3Devil can't show.").await
 }
 
+/// Where a separate network camera streams: the address as given if it's a
+/// full one, otherwise the Buddy3D camera's stream at that host.
+fn camera_url(address: &str) -> String {
+    let address = address.trim();
+    if address.contains("://") {
+        address.to_string()
+    } else {
+        format!("rtsp://{}/live", address.trim_end_matches('/'))
+    }
+}
+
+async fn network_camera(address: &str, picture: &Shared) -> Result<(), String> {
+    let url = camera_url(address);
+    loop {
+        match ffmpeg_stream(&url, "tcp", false, picture).await {
+            // The stream dropped after working: pick it up again.
+            Ok(_) => sleep(Duration::from_secs(2)).await,
+            Err(e) => {
+                println!("[camera] ffmpeg: {e}");
+                return Err(if e.contains("ffmpeg") {
+                    e
+                } else {
+                    format!("The camera at {address} didn't send a picture. On a Buddy3D camera, set Local Stream Mode to RTSP in the Prusa app. ({e})")
+                });
+            }
+        }
+    }
+}
+
 /// Returns once the page has stopped asking for pictures.
 async fn unwatched(picture: &Shared) {
     loop {
@@ -389,7 +419,8 @@ async fn unwatched(picture: &Shared) {
 
 /// Opens the camera of the printer `id`, replacing any feed it already has.
 /// `rtsp` says a Bambu printer streams video instead of sending pictures.
-/// `serial` is an Elegoo printer's mainboard id.
+/// `serial` is an Elegoo printer's mainboard id. For a Prusa printer, `host` is
+/// its camera's address.
 #[tauri::command]
 pub async fn camera_start(
     cameras: State<'_, Cameras>,
@@ -403,7 +434,9 @@ pub async fn camera_start(
     let picture = Shared::default();
     picture.lock().unwrap().asked = Some(Instant::now());
     let feed = picture.clone();
-    let (view, stream): (View, Pin<Box<dyn Future<Output = Result<(), String>> + Send>>) = if kind == "elegoo" {
+    let (view, stream): (View, Pin<Box<dyn Future<Output = Result<(), String>> + Send>>) = if kind == "prusa" {
+        (View::default(), Box::pin(async move { network_camera(&host, &feed).await }))
+    } else if kind == "elegoo" {
         let mainboard = serial.unwrap_or_default();
         (View::default(), Box::pin(async move { elegoo_camera(&host, &mainboard, &feed).await }))
     } else if kind == "klipper" {
@@ -575,5 +608,12 @@ mod tests {
             sleep(Duration::from_secs(4)).await;
             assert!(saved > 0, "no pictures");
         });
+    }
+
+    #[test]
+    fn network_camera_addresses() {
+        assert_eq!(camera_url("192.168.2.203"), "rtsp://192.168.2.203/live");
+        assert_eq!(camera_url(" cam.local/ "), "rtsp://cam.local/live");
+        assert_eq!(camera_url("rtsp://10.0.0.9:8554/stream"), "rtsp://10.0.0.9:8554/stream");
     }
 }
