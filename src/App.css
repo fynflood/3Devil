@@ -313,6 +313,14 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .printers-view { max-width: 1100px; }
 .printer-panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; }
 .printer-panel.off strong { color: var(--muted); }
+.printer-slot { position: relative; }
+.printer-slot.moving .printer-panel { opacity: 0.5; }
+.printer-slot.drop-before::before, .printer-slot.drop-after::after { content: ""; position: absolute; left: 0; right: 0; height: 3px; border-radius: 2px; background: var(--accent); }
+.printer-slot.drop-before::before { top: -9px; }
+.printer-slot.drop-after::after { bottom: 5px; }
+.grip { cursor: grab; touch-action: none; color: var(--muted); background: none; border: none; font-size: 16px; align-self: center; }
+.grip:active { cursor: grabbing; }
+.grip:hover { color: var(--text); }
 .printer-live { display: grid; grid-template-columns: minmax(0, 3fr) minmax(240px, 2fr); gap: 14px; }
 @media (max-width: 900px) { .printer-live { grid-template-columns: minmax(0, 1fr); } }
 .camera { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); overflow: hidden; display: grid; place-items: center; }

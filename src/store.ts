@@ -778,6 +778,16 @@ export function useStore() {
         else list.push(printer);
       });
     },
+    /** Moves a printer to sit before the one now at `to`, or last when `to` is the length. */
+    movePrinter(id: string, to: number) {
+      mutate((s) => {
+        const list = s.settings.printers ?? [];
+        const from = list.findIndex((p) => p.id === id);
+        if (from < 0) return;
+        const [printer] = list.splice(from, 1);
+        list.splice(Math.max(0, to > from ? to - 1 : to), 0, printer);
+      });
+    },
     removePrinter(id: string) {
       mutate((s) => {
         s.settings.printers = (s.settings.printers ?? []).filter((p) => p.id !== id);

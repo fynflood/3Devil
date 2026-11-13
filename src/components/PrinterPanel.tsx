@@ -10,6 +10,8 @@ interface Props {
   onOpenPart: (projectId: string, partId: string) => void;
   /** Enable, edit and remove controls. */
   actions: ReactNode;
+  /** A handle for moving the printer, before its name. */
+  grip?: ReactNode;
 }
 
 /** How often the page asks for a new camera picture. */
@@ -146,7 +148,7 @@ function Camera({ printer, status }: { printer: PrinterConfig; status?: PrinterS
 }
 
 /** One printer's camera, current print and readings. */
-export function PrinterPanel({ printer, status, projects, onOpenPart, actions }: Props) {
+export function PrinterPanel({ printer, status, projects, onOpenPart, actions, grip }: Props) {
   const r = status?.print ?? {};
   const state = r.gcode_state ?? "";
   const active = ACTIVE_STATES.has(state);
@@ -182,6 +184,7 @@ export function PrinterPanel({ printer, status, projects, onOpenPart, actions }:
   return (
     <section className={`printer-panel${printer.disabled ? " off" : ""}`}>
       <div className="printer-row">
+        {grip}
         <div>
           <strong>{printer.name}</strong>
           <div className="muted small">{[PRINTER_KIND_NAMES[printer.kind ?? "bambu"], printer.model, printer.ip, printer.serial].filter(Boolean).join(" · ")}</div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { api, type FoundPrinter } from "../api";
 import { uid, type Store } from "../store";
 import { PrinterPanel } from "./PrinterPanel";
@@ -31,6 +31,49 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
   const [draft, setDraft] = useState<PrinterConfig | null>(null);
   const [found, setFound] = useState<Found[] | null>(null);
   const [busy, setBusy] = useState(false);
+  // Moving a printer by its grip: which one, and where it would land.
+  const [moving, setMoving] = useState<{ id: string; to: number } | null>(null);
+  const slots = useRef(new Map<string, HTMLElement>());
+
+  // Dropping a printer next to where it is wouldn't move it, so no line shows.
+  const from = moving ? printers.findIndex((p) => p.id === moving.id) : -1;
+  const shift = !!moving && moving.to !== from && moving.to !== from + 1;
+
+  /** Where a printer dropped at this height would go: before the panel whose middle is below it. */
+  const landing = (y: number) => {
+    const i = printers.findIndex((p) => {
+      const box = slots.current.get(p.id)?.getBoundingClientRect();
+      return box && y < box.top + box.height / 2;
+    });
+    return i < 0 ? printers.length : i;
+  };
+  const grip = (p: PrinterConfig, i: number) => (
+    <button
+      className="icon-btn grip"
+      aria-label={`Move ${p.name}`}
+      title="Drag to move, or use the arrow keys"
+      onPointerDown={(e: PointerEvent) => {
+        if (e.button !== 0) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setMoving({ id: p.id, to: i });
+      }}
+      onPointerMove={(e: PointerEvent) => moving?.id === p.id && setMoving({ id: p.id, to: landing(e.clientY) })}
+      onPointerUp={() => {
+        if (moving?.id === p.id) store.actions.movePrinter(p.id, moving.to);
+        setMoving(null);
+      }}
+      onPointerCancel={() => setMoving(null)}
+      onKeyDown={(e: KeyboardEvent) => {
+        if (e.key === "Escape") setMoving(null);
+        const step = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 2 : 0;
+        if (!step || moving) return;
+        e.preventDefault();
+        store.actions.movePrinter(p.id, Math.min(printers.length, Math.max(0, i + step)));
+      }}
+    >
+      ⠿
+    </button>
+  );
 
   const scan = async () => {
     setBusy(true);
@@ -82,29 +125,40 @@ export function PrintersView({ store, statuses, onOpenPart, notify }: Props) {
       </p>
 
       <div>
-        {printers.map((p) => (
-          <PrinterPanel
+        {printers.map((p, i) => (
+          <div
             key={p.id}
-            printer={p}
-            status={statuses[p.id]}
-            projects={store.state!.projects}
-            onOpenPart={onOpenPart}
-            actions={
-              <>
-                <label className="inline small" title="A printer that's off isn't connected to or shown in the sidebar">
-                  <input
-                    type="checkbox"
-                    checked={!p.disabled}
-                    aria-label={`Connect to ${p.name}`}
-                    onChange={(e) => store.actions.savePrinter({ ...p, disabled: !e.target.checked || undefined })}
-                  />
-                  Enabled
-                </label>
-                <button onClick={() => setDraft({ ...p })}>Edit</button>
-                <button className="danger" title="Remove this printer from 3Devil" onClick={() => store.actions.removePrinter(p.id)}>Remove</button>
-              </>
-            }
-          />
+            ref={(el) => void (el ? slots.current.set(p.id, el) : slots.current.delete(p.id))}
+            className={[
+              "printer-slot",
+              moving?.id === p.id && "moving",
+              shift && moving!.to === i && "drop-before",
+              shift && i === printers.length - 1 && moving!.to === printers.length && "drop-after",
+            ].filter(Boolean).join(" ")}
+          >
+            <PrinterPanel
+              printer={p}
+              grip={printers.length > 1 && grip(p, i)}
+              status={statuses[p.id]}
+              projects={store.state!.projects}
+              onOpenPart={onOpenPart}
+              actions={
+                <>
+                  <label className="inline small" title="A printer that's off isn't connected to or shown in the sidebar">
+                    <input
+                      type="checkbox"
+                      checked={!p.disabled}
+                      aria-label={`Connect to ${p.name}`}
+                      onChange={(e) => store.actions.savePrinter({ ...p, disabled: !e.target.checked || undefined })}
+                    />
+                    Enabled
+                  </label>
+                  <button onClick={() => setDraft({ ...p })}>Edit</button>
+                  <button className="danger" title="Remove this printer from 3Devil" onClick={() => store.actions.removePrinter(p.id)}>Remove</button>
+                </>
+              }
+            />
+          </div>
         ))}
         {!printers.length && !draft && <p>No printers yet.</p>}
 
