@@ -8,6 +8,7 @@ import { enabledSlicers, hasPresets, mainSlicer, PRESET_SETTINGS } from "../slic
 import { SLICER_IDS, SLICER_NAMES, type SlicerId, type Theme } from "../types";
 import type { Updater } from "../updater";
 import { DEFAULT_THEME } from "../theme";
+import { DEFAULT_SCREENSAVER } from "./Screensaver";
 
 interface Props {
   store: Store;
@@ -198,6 +199,13 @@ const THEMES: [Theme, string][] = [
   ["dark", "Dark"],
 ];
 
+const SCREENSAVER: [number, string][] = [
+  [0, "Off"],
+  [1, "1 min"],
+  [3, "3 min"],
+  [10, "10 min"],
+];
+
 export type SettingsTab = "general" | "slicers" | "sync";
 
 const TABS: [SettingsTab, string][] = [
@@ -237,6 +245,23 @@ export function SettingsView({ store, notify, updater, tab, onTab, onWhatsNew }:
               ))}
             </div>
             <p className="muted small">System follows your computer's light or dark setting.</p>
+          </section>
+          <section>
+            <h3>Screensaver</h3>
+            <div className="filters" role="radiogroup" aria-label="Screensaver">
+              {SCREENSAVER.map(([minutes, label]) => (
+                <button
+                  key={minutes}
+                  role="radio"
+                  aria-checked={(settings.screensaverMinutes ?? DEFAULT_SCREENSAVER) === minutes}
+                  className={`chip${(settings.screensaverMinutes ?? DEFAULT_SCREENSAVER) === minutes ? " active" : ""}`}
+                  onClick={() => store.actions.setScreensaverMinutes(minutes)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="muted small">When 3Devil is in front and you leave it alone this long, a dragon and a necromancer fight across the window. Move the mouse or press a key to come back.</p>
           </section>
           <UpdateSettings store={store} updater={updater} onWhatsNew={onWhatsNew} />
         </>

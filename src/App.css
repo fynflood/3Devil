@@ -372,6 +372,9 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .detail-slide.closing { animation: detail-close 0.16s ease-in forwards; }
 @keyframes detail-open { from { transform: translateX(100%); } }
 @keyframes detail-close { to { transform: translateX(100%); } }
+/* Fades in slowly, and goes at once when you come back. */
+.screensaver { position: fixed; inset: 0; z-index: 100; overflow: hidden; }
+.screensaver canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
 @media (prefers-reduced-motion: reduce) {
   .detail-slide, .group-body.moving { animation: none; }
   .group-body.moving { display: block; }

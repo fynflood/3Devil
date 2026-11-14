@@ -838,6 +838,11 @@ export function useStore() {
         s.settings.autoUpdate = value;
       });
     },
+    setScreensaverMinutes(minutes: number) {
+      mutate((s) => {
+        s.settings.screensaverMinutes = minutes;
+      });
+    },
     };
     return actions;
   }, [mutate, withProject]);

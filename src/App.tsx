@@ -17,6 +17,7 @@ import { UpdateCard } from "./components/UpdateCard";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { useWhatsNew, WhatsNew } from "./components/WhatsNew";
 import { useReorder } from "./useReorder";
+import { DEFAULT_SCREENSAVER, Screensaver } from "./components/Screensaver";
 import { api } from "./api";
 import type { Store } from "./store";
 import { SLICER_IDS, type Part, type Project } from "./types";
@@ -289,6 +290,7 @@ export default function App() {
       {!review && !creating && <UpdatePrompt updater={updater} />}
       {whatsNew.shown && !review && !creating && !updater.offered && <WhatsNew releases={whatsNew.shown} onClose={whatsNew.dismiss} />}
       {toast && <div className={`toast ${toast.kind}`} onClick={() => setToast(null)}>{toast.msg}</div>}
+      <Screensaver minutes={state.settings.screensaverMinutes ?? DEFAULT_SCREENSAVER} />
     </div>
   );
 }
