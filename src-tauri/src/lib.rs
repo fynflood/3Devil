@@ -376,11 +376,21 @@ pub(crate) fn external(program: &str) -> Command {
 }
 
 /// Changes to `vars` that drop every entry under the AppImage mount `appdir`:
-/// a new value, or `None` to unset a variable left with nothing.
+/// a new value, or `None` to unset a variable left with nothing. After an
+/// update 3Devil restarts from inside the old AppImage, so that one's mount is
+/// on these paths too, beside `appdir`; its entries go as well.
 fn outside_appimage(
     appdir: &Path,
     vars: impl Iterator<Item = (OsString, OsString)>,
 ) -> Vec<(OsString, Option<OsString>)> {
+    let mounts = appdir.parent();
+    let bundled = |p: &Path| {
+        p.starts_with(appdir)
+            || mounts
+                .and_then(|dir| p.strip_prefix(dir).ok())
+                .and_then(|rest| rest.components().next())
+                .is_some_and(|mount| mount.as_os_str().to_string_lossy().starts_with(".mount_"))
+    };
     let mut changes = Vec::new();
     for (key, value) in vars {
         if ["APPDIR", "APPIMAGE", "ARGV0"].iter().any(|k| key == *k) {
@@ -388,12 +398,12 @@ fn outside_appimage(
             continue;
         }
         let paths: Vec<PathBuf> = std::env::split_paths(&value).collect();
-        if !paths.iter().any(|p| p.starts_with(appdir)) {
+        if !paths.iter().any(|p| bundled(p)) {
             continue;
         }
         let kept: Vec<PathBuf> = paths
             .into_iter()
-            .filter(|p| !p.as_os_str().is_empty() && !p.starts_with(appdir))
+            .filter(|p| !p.as_os_str().is_empty() && !bundled(p))
             .collect();
         let value = (!kept.is_empty()).then(|| std::env::join_paths(&kept).ok()).flatten();
         changes.push((key, value));
@@ -505,6 +515,18 @@ fn open_in_slicer(command: Vec<String>, files: Vec<String>, single_instance: boo
 fn open_folder(path: String) -> Result<(), String> {
     if !Path::new(&path).is_dir() {
         return Err(format!("{path} isn't there any more"));
+    }
+    // With the AppImage's libraries loaded, `xdg-open` can't ask the desktop
+    // which program opens folders, and settles for a web browser.
+    if cfg!(target_os = "linux") && which("xdg-open").is_some() {
+        let mut child = external("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Could not open {path}: {e}"))?;
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        return Ok(());
     }
     tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())
 }
@@ -777,6 +799,29 @@ mod tests {
                 (os("LD_LIBRARY_PATH"), Some(os("/usr/lib"))),
                 (os("GIO_MODULE_DIR"), None),
                 (os("PATH"), Some(os("/home/me/.local/bin:/usr/bin"))),
+            ]
+        );
+    }
+
+    #[test]
+    fn external_programs_skip_the_appimage_an_update_restarted_from() {
+        let os = |s: &str| OsString::from(s);
+        let vars = [
+            ("APPDIR", "/tmp/.mount_new"),
+            ("LD_LIBRARY_PATH", "/tmp/.mount_new/usr/lib/:/tmp/.mount_old/usr/lib/:/tmp/.mount_old/lib/"),
+            ("XDG_DATA_DIRS", "/tmp/.mount_new/usr/share:/tmp/.mount_old/usr/share:/usr/share"),
+            ("OWD", "/tmp/.mount_old/usr"),
+            ("TMPDIR", "/tmp"),
+            ("HOME", "/home/me"),
+        ];
+        let changes = outside_appimage(Path::new("/tmp/.mount_new"), vars.iter().map(|(k, v)| (os(k), os(v))));
+        assert_eq!(
+            changes,
+            vec![
+                (os("APPDIR"), None),
+                (os("LD_LIBRARY_PATH"), None),
+                (os("XDG_DATA_DIRS"), Some(os("/usr/share"))),
+                (os("OWD"), None),
             ]
         );
     }
