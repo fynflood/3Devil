@@ -4,7 +4,7 @@ import { api } from "./api";
 import { backfillFilament } from "./filamentBackfill";
 import { enabledSlicers, mainSlicer } from "./slicers";
 import type { Store } from "./store";
-import type { Job, JobItem, Part, PrinterConfig, PrinterReport, PrinterStatus, Project, Settings, SlicerId } from "./types";
+import type { Job, JobItem, Part, PrinterConfig, PrinterKind, PrinterReport, PrinterStatus, Project, Settings, SlicerId } from "./types";
 
 export const ACTIVE_STATES = new Set(["PREPARE", "SLICING", "RUNNING", "PAUSE", "ATTENTION"]);
 
@@ -125,6 +125,60 @@ export function runningJobs(projects: Project[], statuses: Record<string, Printe
     if (linked) running.set(linked.job.id, itemsInPrint(linked.project, linked.job, print.subtask_name ?? ""));
   }
   return running;
+}
+
+/** The kinds of printer each slicer makes files for. */
+const SLICER_PRINTERS: Record<SlicerId, PrinterKind[]> = {
+  bambu: ["bambu"],
+  prusa: ["prusa"],
+  orca: ["bambu", "prusa", "klipper"],
+  chitubox: ["elegoo"],
+  lychee: ["elegoo"],
+};
+
+/** A job whose parts have gone to a slicer and aren't on a printer yet. */
+export const inSlicer = (job: Job) => job.status === "queued" && !job.printer && !!(job.slicer || job.droppedAt);
+
+/**
+ * The printer a job in a slicer is waiting for: the one picked for it, else
+ * the only printer its slicer could be slicing for.
+ */
+export function nextPrinter(job: Job, printers: PrinterConfig[]): PrinterConfig | undefined {
+  const on = printers.filter((p) => !p.disabled);
+  const picked = on.find((p) => p.id === job.nextOn);
+  if (picked) return picked;
+  const kinds = job.slicer && SLICER_PRINTERS[job.slicer];
+  const fits = kinds ? on.filter((p) => kinds.includes(p.kind ?? "bambu")) : on;
+  return fits.length === 1 ? fits[0] : undefined;
+}
+
+export interface UpNext {
+  project: Project;
+  job: Job;
+}
+
+/** The jobs in a slicer waiting for each printer, longest-waiting first, by printer id. */
+export function upNext(projects: Project[], printers: PrinterConfig[]) {
+  const next = new Map<string, UpNext[]>();
+  for (const project of projects) {
+    for (const job of project.jobs) {
+      const printer = inSlicer(job) && nextPrinter(job, printers);
+      if (printer) next.set(printer.id, [...(next.get(printer.id) ?? []), { project, job }]);
+    }
+  }
+  const since = (job: Job) => job.droppedAt ?? job.createdAt;
+  for (const list of next.values()) list.sort((a, b) => since(a.job) - since(b.job));
+  return next;
+}
+
+/** Copies of each part in jobs that are in a slicer, waiting for a printer. */
+export function nextCounts(project: Project) {
+  const m = new Map<string, number>();
+  for (const job of project.jobs) {
+    if (!inSlicer(job)) continue;
+    for (const it of job.items) m.set(it.partId, (m.get(it.partId) ?? 0) + it.qty);
+  }
+  return m;
 }
 
 export interface PartProgress {

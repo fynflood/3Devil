@@ -79,6 +79,8 @@ export interface Job {
   printer?: JobPrinterLink;
   /** Last time parts were dragged into a slicer for this job. */
   droppedAt?: number;
+  /** The printer the job's plate is waiting for, when picked by hand. */
+  nextOn?: string;
 }
 
 export interface JobPrinterLink {

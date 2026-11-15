@@ -122,8 +122,10 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
-.progress { height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
-.progress > div { height: 100%; background: var(--ok); border-radius: 99px; transition: width 0.25s; }
+.progress { position: relative; height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+.progress > div { position: relative; height: 100%; background: var(--ok); border-radius: 99px; transition: width 0.25s; }
+/* Where the bar will reach once what's printing now is done; the solid bar sits over it. */
+.progress > .ahead { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--ok) 35%, transparent); }
 .progress.thin { height: 4px; }
 
 /* Project */
@@ -308,22 +310,29 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .pill-active { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
 .error-text { color: var(--danger); }
 .printer-row { display: flex; align-items: center; gap: 8px; }
-.printer-form { display: flex; flex-direction: column; gap: 10px; max-width: 480px; margin: 6px 0 12px; }
-.found-list { margin-top: 10px; }
-.printers-view { max-width: 1100px; }
-.printer-panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; }
-.printer-panel.off strong { color: var(--muted); }
-.printer-slot { position: relative; }
+.printer-form { display: flex; flex-direction: column; gap: 10px; max-width: 520px; margin-bottom: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+.printer-form p { margin: 0; }
+.found-list { margin-bottom: 14px; }
+.settings.printers-view { max-width: none; }
+.printers-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.printers-head h2 { margin: 0; }
+.printers-view h3 { margin: 18px 0 8px; font-size: 14px; }
+.printer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 14px; }
+.printer-slot > .printer-panel { margin: 0; }
+.printer-panel { flex: 1; min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.printer-slot { position: relative; display: flex; min-width: 0; }
 .printer-slot.moving .printer-panel { opacity: 0.5; }
-.printer-slot.drop-before::before, .printer-slot.drop-after::after { content: ""; position: absolute; left: 0; right: 0; height: 3px; border-radius: 2px; background: var(--accent); }
-.printer-slot.drop-before::before { top: -9px; }
-.printer-slot.drop-after::after { bottom: 5px; }
+.printer-slot.drop-before::before, .printer-slot.drop-after::after { content: ""; position: absolute; top: 0; bottom: 0; width: 3px; border-radius: 2px; background: var(--accent); }
+.printer-slot.drop-before::before { left: -9px; }
+.printer-slot.drop-after::after { right: -9px; }
+/* A printer that's off, a printer found on the network, or a job waiting for a printer: one line each. */
+.printer-off { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; margin-bottom: 8px; }
+.printer-off > strong { white-space: nowrap; }
 .grip { cursor: grab; touch-action: none; color: var(--muted); background: none; border: none; font-size: 16px; align-self: center; }
 .grip:active { cursor: grabbing; }
 .grip:hover { color: var(--text); }
-.printer-live { display: grid; grid-template-columns: minmax(0, 3fr) minmax(240px, 2fr); gap: 14px; }
-@media (max-width: 900px) { .printer-live { grid-template-columns: minmax(0, 1fr); } }
-.camera { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius); overflow: hidden; display: grid; place-items: center; }
+/* Tall enough to see, never taller than leaves room for the readings under it. */
+.camera { position: relative; aspect-ratio: 16 / 9; max-height: 60vh; background: #000; border-radius: var(--radius); overflow: hidden; display: grid; place-items: center; }
 .camera.off { aspect-ratio: auto; background: none; justify-items: start; }
 .camera img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .camera-note { padding: 12px; text-align: center; display: flex; flex-direction: column; gap: 8px; align-items: center; }
@@ -336,13 +345,22 @@ label.inline { display: flex; gap: 10px; align-items: center; }
 .printer-progress { display: flex; align-items: center; gap: 10px; font-variant-numeric: tabular-nums; }
 .printer-progress .progress { flex: 1; }
 .fact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px 14px; margin: 0; }
+.fact-grid.key { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .fact-grid dt { font-size: 11px; color: var(--muted); }
 .fact-grid dd { margin: 0; font-variant-numeric: tabular-nums; }
 .spools { display: flex; flex-wrap: wrap; gap: 6px; }
 .spool { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 99px; }
 .spool.active { border-color: var(--accent); }
 .spool-swatch { width: 11px; height: 11px; border-radius: 50%; border: 1px solid var(--muted); }
-.printer-row label.inline { margin: 0; }
+.printer-next { display: flex; align-items: baseline; gap: 6px; min-width: 0; border-top: 1px solid var(--border); padding-top: 10px; }
+.printer-next > * { flex: none; }
+.next-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--warn); }
+.next-parts { flex: 0 1 auto !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+label.next-on { gap: 6px; margin: 0; white-space: nowrap; color: var(--muted); }
+.next-on select { padding: 2px 6px; color: var(--text); }
+.printer-more summary { cursor: pointer; width: fit-content; }
+.printer-more[open] summary { margin-bottom: 10px; }
+.printer-more .spools { margin-top: 10px; }
 .slicer-row { margin-bottom: 12px; }
 .slicer-row label.inline { margin-bottom: 6px; font-weight: 600; }
 .slicer-row label.slicer-option { margin: 6px 0 0; font-weight: 400; }

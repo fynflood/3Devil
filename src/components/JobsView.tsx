@@ -1,7 +1,8 @@
 import { formatDuration, formatGrams } from "../api";
-import type { PartProgress } from "../printers";
+import { inSlicer, type PartProgress } from "../printers";
 import type { Store } from "../store";
 import { SLICER_NAMES, type Job, type JobItem, type Project, type SlicerId } from "../types";
+import { NextOn } from "./NextOn";
 
 interface Props {
   store: Store;
@@ -64,6 +65,7 @@ export function JobsView({ store, project, running, partProgress, onSend, onFocu
                 </span>
               ) : (
                 <>
+                  {inSlicer(job) && <NextOn store={store} project={project} job={job} />}
                   <button className="primary" title="Count every copy in this job as printed" onClick={() => actions.finishJob(project.id, job.id, "done")}>Printed ✓</button>
                   <button title="Count every copy in this job as failed" onClick={() => actions.finishJob(project.id, job.id, "failed")}>Failed</button>
                 </>

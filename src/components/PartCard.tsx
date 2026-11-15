@@ -10,6 +10,8 @@ interface Props {
   printing: number;
   /** How far along that print is. */
   progress?: number;
+  /** Of the queued copies, how many are sliced and waiting for a printer. */
+  next: number;
   selected: boolean;
   focused: boolean;
   onToggle: (id: string, range: boolean) => void;
@@ -39,11 +41,14 @@ function useVisible<T extends Element>() {
 }
 
 export const PartCard = memo(function PartCard({
-  part, status, queued, printing, progress, selected, focused, onToggle, onFocus, onAdjust, onDragOut, onUnqueue, isRevision, hasNewerVersion,
+  part, status, queued, printing, progress, next, selected, focused, onToggle, onFocus, onAdjust, onDragOut, onUnqueue, isRevision, hasNewerVersion,
 }: Props) {
   const [ref, visible] = useVisible<HTMLDivElement>();
   const imgRef = useRef<HTMLImageElement>(null);
   const thumb = useThumbnail(part.path, part.size, visible && !part.missing, part.updatedAt);
+  // Copies not on a printer yet: up next when they've all been sliced, else just queued.
+  const waiting = queued - (status === "printing" ? printing : 0);
+  const waitingLabel = next >= waiting ? (waiting > 1 ? `${waiting} up next` : "Up next") : `${waiting} queued`;
 
   return (
     <div
@@ -80,11 +85,11 @@ export const PartCard = memo(function PartCard({
         {status === "printing" ? (
           <>
             <span className="badge printing">{printing > 1 ? `${printing} printing` : "Printing"}</span>
-            {queued > printing && <span className="badge queued stacked">{queued - printing} queued</span>}
+            {waiting > 0 && <span className="badge queued stacked">{waitingLabel}</span>}
           </>
         ) : queued > 0 && status !== "done" && (
-          <span className="badge queued">
-            {queued} queued
+          <span className="badge queued" title={next >= waiting ? "Sliced and waiting for a printer" : undefined}>
+            {waitingLabel}
             <button
               className="badge-x"
               title="Remove from queue"

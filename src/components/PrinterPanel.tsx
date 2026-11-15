@@ -1,15 +1,16 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api, formatDuration, type CameraView } from "../api";
-import { ACTIVE_STATES, chamberTemp, currentPart, statusPill } from "../printers";
+import { ACTIVE_STATES, chamberTemp, currentPart, statusPill, type UpNext } from "../printers";
 import { PRINTER_KIND_NAMES, type AmsTray, type PrinterConfig, type PrinterReport, type PrinterStatus, type Project } from "../types";
 
 interface Props {
   printer: PrinterConfig;
   status?: PrinterStatus;
   projects: Project[];
+  /** Jobs in a slicer waiting for this printer, the first one first. */
+  next: UpNext[];
   onOpenPart: (projectId: string, partId: string) => void;
-  /** Enable, edit and remove controls. */
-  actions: ReactNode;
+  onEdit: () => void;
   /** A handle for moving the printer, before its name. */
   grip?: ReactNode;
 }
@@ -147,98 +148,120 @@ function Camera({ printer, status }: { printer: PrinterConfig; status?: PrinterS
   );
 }
 
+/** The plate waiting in a slicer for this printer. */
+function NextUp({ next, onOpenPart }: Pick<Props, "next" | "onOpenPart">) {
+  const [{ project, job }] = next;
+  const parts = job.items.flatMap((it) => project.parts.find((p) => p.id === it.partId) ?? []);
+  if (!parts.length) return null;
+  const names = parts.slice(0, 3).map((p) => p.name).join(", ");
+  return (
+    <div className="printer-next small" title="Sliced and waiting for this printer">
+      <span className="next-label">Up next</span>
+      <button className="link" onClick={() => onOpenPart(project.id, parts[0].id)}>{job.name}</button>
+      <span className="muted next-parts">
+        · {names}{parts.length > 3 ? ` + ${parts.length - 3} more` : ""} · {project.name}
+      </span>
+      {next.length > 1 && <span className="muted">+ {next.length - 1} more {next.length === 2 ? "job" : "jobs"}</span>}
+    </div>
+  );
+}
+
 /** One printer's camera, current print and readings. */
-export function PrinterPanel({ printer, status, projects, onOpenPart, actions, grip }: Props) {
+export function PrinterPanel({ printer, status, projects, next, onOpenPart, onEdit, grip }: Props) {
   const r = status?.print ?? {};
   const state = r.gcode_state ?? "";
   const active = ACTIVE_STATES.has(state);
   const pill = statusPill(status);
-  const { match } = status ? currentPart(projects, printer.id, r) : { match: null };
-  const error = !printer.disabled && status?.error;
+  const { linked, match } = status ? currentPart(projects, printer.id, r) : { linked: null, match: null };
+  const others = linked ? linked.job.items.length - 1 : 0;
   const left = r.mc_remaining_time;
   const trays = spools(r);
 
-  const printFacts: [string, string | null][] = active
-    ? [
-        ["Time left", left !== undefined ? formatDuration(left * 60) : null],
-        ["Finishes about", left !== undefined ? finishTime(left) : null],
-        ["Layer", r.total_layer_num ? `${r.layer_num ?? 0} / ${r.total_layer_num}` : null],
-        ["Speed", speed(r)],
-      ]
-    : [];
-  const readings: [string, string | null][] = [
+  const has = (f: [string, string | null | undefined]): f is [string, string] => !!f[1];
+  // The first four of these sit under the print; the rest fold away with the other readings.
+  const main = ([
+    ["Time left", active && left !== undefined ? formatDuration(left * 60) : null],
+    ["Finishes about", active && left !== undefined ? finishTime(left) : null],
+    ["Layer", active && r.total_layer_num ? `${r.layer_num ?? 0} / ${r.total_layer_num}` : null],
     ["Nozzle", temp(r.nozzle_temper, r.nozzle_target_temper)],
     ["Bed", temp(r.bed_temper, r.bed_target_temper)],
     ["Chamber", temp(chamberTemp(r))],
     ["Vat", temp(r.vat_temper, r.vat_target_temper)],
     ["UV light", temp(r.uv_led_temper)],
-    ["Part fan", fan(r.cooling_fan_speed)],
-    ["Aux fan", fan(r.big_fan1_speed)],
-    ["Chamber fan", fan(r.big_fan2_speed)],
-    ["Hotend fan", fan(r.heatbreak_fan_speed)],
-    ["Nozzle size", r.nozzle_diameter ? `${r.nozzle_diameter} mm` : null],
-    ["Wi-Fi", r.wifi_signal ?? null],
+  ] as [string, string | null][]).filter(has);
+  const more = [
+    ...main.slice(4),
+    ...([
+      ["Speed", active ? speed(r) : null],
+      ["Part fan", fan(r.cooling_fan_speed)],
+      ["Aux fan", fan(r.big_fan1_speed)],
+      ["Chamber fan", fan(r.big_fan2_speed)],
+      ["Hotend fan", fan(r.heatbreak_fan_speed)],
+      ["Nozzle size", r.nozzle_diameter ? `${r.nozzle_diameter} mm` : null],
+      ["Wi-Fi", r.wifi_signal ?? null],
+    ] as [string, string | null][]).filter(has),
   ];
-  const facts = [...printFacts, ...readings].filter((f): f is [string, string] => !!f[1]);
+  const facts = (list: [string, string][]) =>
+    list.map(([label, value]) => (
+      <div key={label}>
+        <dt>{label}</dt>
+        <dd>{value}</dd>
+      </div>
+    ));
 
   return (
-    <section className={`printer-panel${printer.disabled ? " off" : ""}`}>
+    <section className="printer-panel">
       <div className="printer-row">
         {grip}
-        <div>
-          <strong>{printer.name}</strong>
-          <div className="muted small">{[PRINTER_KIND_NAMES[printer.kind ?? "bambu"], printer.model, printer.ip, printer.serial].filter(Boolean).join(" · ")}</div>
-        </div>
-        <div className="spacer" />
-        <span className={`pill ${printer.disabled ? "" : pill.className}`}>{printer.disabled ? "Off" : pill.label}</span>
-        {actions}
+        <strong
+          className="printer-name"
+          title={[PRINTER_KIND_NAMES[printer.kind ?? "bambu"], printer.model, printer.ip, printer.serial].filter(Boolean).join(" · ")}
+        >
+          {printer.name}
+        </strong>
+        <span className={`pill ${pill.className}`}>{pill.label}</span>
+        <button className="small" title="Change this printer's details, turn it off or remove it" onClick={onEdit}>Edit</button>
       </div>
-      {error && <div className="small error-text">{error}</div>}
+      {status?.error && <div className="small error-text">{status.error}</div>}
 
-      {!printer.disabled && (
-        <div className="printer-live">
-          <Camera printer={printer} status={status} />
-          <div className="printer-facts">
-            {r.subtask_name && (active || state === "FINISH" || state === "FAILED") ? (
-              <div className="printer-print">
-                {match ? (
-                  <button className="link printer-job" onClick={() => onOpenPart(match.project.id, match.part.id)}>
-                    {match.part.name} <span className="muted">· {match.project.name}</span>
-                  </button>
-                ) : (
-                  <div className="printer-job" title="No part in your projects has this name">{r.subtask_name}</div>
-                )}
-                {active && (
-                  <div className="printer-progress">
-                    <div className="progress"><div style={{ width: `${r.mc_percent ?? 0}%` }} /></div>
-                    <strong>{r.mc_percent ?? 0}%</strong>
-                  </div>
-                )}
-              </div>
+      <Camera printer={printer} status={status} />
+      <div className="printer-facts">
+        {r.subtask_name && (active || state === "FINISH" || state === "FAILED") ? (
+          <div className="printer-print">
+            {match ? (
+              <button className="link printer-job" onClick={() => onOpenPart(match.project.id, match.part.id)}>
+                {match.part.name} <span className="muted">{others > 0 ? `+ ${others} more ` : ""}· {match.project.name}</span>
+              </button>
             ) : (
-              <p className="muted small">{status?.connected ? "Nothing printing." : ""}</p>
+              <div className="printer-job" title="No part in your projects has this name">{r.subtask_name}</div>
             )}
-            {facts.length > 0 && (
-              <dl className="fact-grid">
-                {facts.map(([label, value]) => (
-                  <div key={label}>
-                    <dt>{label}</dt>
-                    <dd>{value}</dd>
-                  </div>
-                ))}
-              </dl>
+            {active && (
+              <div className="printer-progress">
+                <div className="progress"><div style={{ width: `${r.mc_percent ?? 0}%` }} /></div>
+                <strong>{r.mc_percent ?? 0}%</strong>
+              </div>
             )}
+          </div>
+        ) : (
+          status?.connected && <p className="muted small">Nothing printing.</p>
+        )}
+        {main.length > 0 && <dl className="fact-grid key">{facts(main.slice(0, 4))}</dl>}
+        {!!r.hms?.length && (
+          <p className="small error-text">The printer is reporting {r.hms.length === 1 ? "a problem" : `${r.hms.length} problems`}. Check its screen.</p>
+        )}
+        {next.length > 0 && <NextUp next={next} onOpenPart={onOpenPart} />}
+        {(more.length > 0 || trays.length > 0) && (
+          <details className="printer-more">
+            <summary className="muted small">{trays.length ? "More readings and filament" : "More readings"}</summary>
+            {more.length > 0 && <dl className="fact-grid">{facts(more)}</dl>}
             {trays.length > 0 && (
               <div className="spools">
                 {trays.map(({ tray, label, active: inUse }) => <Spool key={label} tray={tray} label={label} active={inUse} />)}
               </div>
             )}
-            {!!r.hms?.length && (
-              <p className="small error-text">The printer is reporting {r.hms.length === 1 ? "a problem" : `${r.hms.length} problems`}. Check its screen.</p>
-            )}
-          </div>
-        </div>
-      )}
+          </details>
+        )}
+      </div>
     </section>
   );
 }

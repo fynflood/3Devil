@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api, formatGrams, formatLongDuration } from "../api";
-import { printingCounts } from "../printers";
+import { nextCounts, printingCounts } from "../printers";
 import { activeParts, describeScan, partStatus, projectProgress, queuedCounts, filamentLeft, projectStats, timeLeft, type Store } from "../store";
 import { findRevisions } from "../revisions";
 import { enabledSlicers, mainSlicer, sendToSlicer } from "../slicers";
@@ -131,6 +131,7 @@ export function ProjectView({ store, project, driveThru, running, partProgress, 
 
   const queued = useMemo(() => queuedCounts(project), [project]);
   const printing = useMemo(() => printingCounts(project, running), [project, running]);
+  const upNext = useMemo(() => nextCounts(project), [project]);
   const statusOf = useCallback(
     (p: Part) => partStatus(p, queued.get(p.id) ?? 0, printing.get(p.id) ?? 0),
     [queued, printing],
@@ -138,6 +139,12 @@ export function ProjectView({ store, project, driveThru, running, partProgress, 
   const progress = projectProgress(project);
   const missingFolders = useMissingFolders(project.folders);
   const pct = progress.required ? Math.round((progress.printed / progress.required) * 100) : 0;
+  // Where the project will stand once what's on the printers now is done.
+  const printsAhead = activeParts(project).reduce(
+    (n, p) => n + Math.min(printing.get(p.id) ?? 0, Math.max(0, p.required - p.printed)),
+    0,
+  );
+  const pctAhead = progress.required ? Math.round(((progress.printed + printsAhead) / progress.required) * 100) : 0;
 
   const hidden = useMemo(() => new Set(project.hiddenGroups), [project.hiddenGroups]);
   const collapsed = useMemo(() => new Set(project.collapsedGroups), [project.collapsedGroups]);
@@ -334,7 +341,10 @@ export function ProjectView({ store, project, driveThru, running, partProgress, 
               {progress.printed}/{progress.required} prints · {progress.partsDone}/{progress.parts} parts complete
             </span>
           </div>
-          <div className="progress"><div style={{ width: `${pct}%` }} /></div>
+          <div className="progress" title={printsAhead ? `${pctAhead}% once what's printing now is done` : undefined}>
+            {printsAhead > 0 && <div className="ahead" style={{ width: `${pctAhead}%` }} />}
+            <div style={{ width: `${pct}%` }} />
+          </div>
           <LeftToPrint project={project} />
           <ProjectStats project={project} />
         </div>
@@ -477,6 +487,8 @@ export function ProjectView({ store, project, driveThru, running, partProgress, 
               <div className="parts-list" style={{ "--group-name": `${nameLength}ch` } as CSSProperties}>
                 {groups.map(([group, parts]) => {
                   const done = parts.filter((p) => p.printed >= p.required).length;
+                  // Parts that what's printing now will finish.
+                  const ahead = parts.filter((p) => p.printed < p.required && p.printed + (printing.get(p.id) ?? 0) >= p.required).length;
                   const isCollapsed = collapsed.has(group);
                   const name = groupLabel(group, sharedFolder);
                   const leaf = name.lastIndexOf("/") + 1;
@@ -490,7 +502,10 @@ export function ProjectView({ store, project, driveThru, running, partProgress, 
                         </button>
                         <span className="group-folder"><FolderButton path={folderOf(parts, group)} notify={notify} /></span>
                         <span className="muted group-count">{done}/{parts.length} done</span>
-                        <div className="progress thin"><div style={{ width: `${(done / parts.length) * 100}%` }} /></div>
+                        <div className="progress thin" title={ahead ? `${done + ahead}/${parts.length} done once what's printing now is finished` : undefined}>
+                          {ahead > 0 && <div className="ahead" style={{ width: `${((done + ahead) / parts.length) * 100}%` }} />}
+                          <div style={{ width: `${(done / parts.length) * 100}%` }} />
+                        </div>
                         <button
                           className="link"
                           title="Select every part in this folder that still needs printing"
@@ -528,6 +543,7 @@ export function ProjectView({ store, project, driveThru, running, partProgress, 
                               queued={queued.get(p.id) ?? 0}
                               printing={printing.get(p.id) ?? 0}
                               progress={partProgress.get(p.id)?.percent}
+                              next={upNext.get(p.id) ?? 0}
                               selected={selected.has(p.id)}
                               focused={focusId === p.id}
                               onToggle={toggle}
