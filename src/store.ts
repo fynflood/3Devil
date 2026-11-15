@@ -61,6 +61,37 @@ function removeFromQueue(project: Project, ids: Set<string>) {
   project.jobs = project.jobs.filter((j) => j.items.length);
 }
 
+/**
+ * Sets a job on a printer to the parts and copies on its plate. Parts the
+ * plate doesn't have move to a queued job of their own, and copies it adds
+ * come out of the jobs still waiting.
+ */
+export function countJobPlate(p: Project, jobId: string, plate: JobItem[]) {
+  const job = p.jobs.find((j) => j.id === jobId);
+  if (!job?.printer || job.status !== "queued") return;
+  const had = new Map(job.items.map((it) => [it.partId, it.qty]));
+  const rest = job.items.filter((it) => !plate.some((x) => x.partId === it.partId));
+  job.items = plate.map(({ partId, qty }) => ({ partId, qty }));
+  job.printer.counted = true;
+  job.droppedAt = undefined;
+  const waiting = p.jobs.filter((j) => j.status === "queued" && !j.printer);
+  for (const it of plate) {
+    let added = it.qty - (had.get(it.partId) ?? 0);
+    for (const w of waiting) {
+      const line = w.items.find((x) => x.partId === it.partId);
+      if (!line || added <= 0) continue;
+      const taken = Math.min(added, line.qty);
+      line.qty -= taken;
+      added -= taken;
+    }
+  }
+  for (const w of waiting) w.items = w.items.filter((it) => it.qty > 0);
+  p.jobs = p.jobs.filter((j) => j.items.length);
+  if (rest.length) {
+    p.jobs.unshift({ ...job, id: uid(), name: `Job ${p.jobs.length + 1}`, items: rest, printer: undefined });
+  }
+}
+
 export function queuedCounts(project: Project): Map<string, number> {
   const m = new Map<string, number>();
   for (const job of project.jobs) {
@@ -745,6 +776,10 @@ export function useStore() {
         // Later drops onto the slicer join the parts still waiting.
         job.droppedAt = undefined;
       });
+    },
+    /** Sets a job on a printer to what its plate holds, read from the print's file. */
+    countJob(projectId: string, jobId: string, plate: JobItem[]) {
+      withProject(projectId, (p) => countJobPlate(p, jobId, plate));
     },
     /** Takes one part out of a job; a job left empty is deleted. */
     removeJobItem(projectId: string, jobId: string, partId: string) {

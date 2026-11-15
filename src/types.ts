@@ -87,11 +87,10 @@ export interface JobPrinterLink {
   /** The printer's name for the running job (Bambu `subtask_name`). */
   subtask: string;
   startedAt: number;
-  /**
-   * The job was made for a print started outside 3Devil, so it holds just what
-   * that print makes, counted from the plate once its objects are known.
-   */
+  /** The job was made for a print started outside 3Devil, so it holds just what that print makes. */
   fromPrinter?: boolean;
+  /** The job's parts and copies were counted from the plate in the print's file. */
+  counted?: boolean;
   /** The printer's own id for the print (PrusaLink job id), when it has one. */
   runId?: string;
   durationSec?: number;
@@ -162,7 +161,7 @@ export interface PrinterReport {
   job_id?: string;
   /** Grams of filament the print uses, from the slicer's figures in its file. */
   filament_g?: number;
-  /** One name per object on the plate being printed, so copies repeat (Bambu, from its file). */
+  /** One name per object on the plate being printed, so copies repeat (Bambu and Prusa, from the print's file). */
   plate_objects?: string[];
   /** Speed profile, 1 (silent) to 4 (ludicrous). */
   spd_lvl?: number;

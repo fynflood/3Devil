@@ -8,10 +8,14 @@ use crate::printer::{emit_status, FoundPrinter, Printers};
 use reqwest::{header, Client, Response, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::io::Read;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, State};
 
 const POLL: Duration = Duration::from_secs(3);
+/// A print file's notes for the printer sit well inside this much of its start.
+const HEAD_LIMIT: usize = 256 * 1024;
+const NOTES_TRIES: u8 = 3;
 
 pub(crate) enum Failure {
     /// Wrong username/password; retrying soon won't help.
@@ -157,6 +161,14 @@ struct JobFile {
     /// The slicer's notes in the file, such as `"filament used [g]"`.
     #[serde(default)]
     meta: Value,
+    #[serde(default)]
+    refs: FileRefs,
+}
+
+#[derive(Deserialize, Default)]
+struct FileRefs {
+    /// Path the printer serves the file from.
+    download: Option<String>,
 }
 
 /// Grams of filament from a file's metadata: a number, or text that may list
@@ -171,6 +183,121 @@ fn filament_grams(meta: &Value) -> Option<f64> {
     grams.filter(|g| *g > 0.0)
 }
 
+/// What a print file's own notes say about it.
+#[derive(Debug, Default, PartialEq)]
+struct FileNotes {
+    /// One name per object on the plate, so copies repeat.
+    objects: Vec<String>,
+    grams: Option<f64>,
+}
+
+/// An object's name without what PrusaSlicer adds to tell copies apart, as in
+/// `Wall.stl (Instance 2)` or `Wall.stl id:0 copy 1`.
+fn object_name(label: &str) -> &str {
+    let number = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if let Some((name, n)) = label.rsplit_once(" (Instance ") {
+        if n.strip_suffix(')').is_some_and(number) {
+            return name;
+        }
+    }
+    if let Some((rest, copy)) = label.rsplit_once(" copy ") {
+        if let Some((name, id)) = rest.rsplit_once(" id:") {
+            if number(copy) && number(id) {
+                return name;
+            }
+        }
+    }
+    label
+}
+
+/// Reads PrusaSlicer's notes for the printer, lines of `key=value`.
+fn file_notes(text: &str) -> FileNotes {
+    let value = |key: &str| text.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix('='));
+    let objects = value("objects_info")
+        .and_then(|v| serde_json::from_str::<Value>(v).ok())
+        .and_then(|v| {
+            let names = v["objects"].as_array()?.iter().filter_map(|o| o["name"].as_str());
+            Some(names.map(|n| object_name(n).to_string()).collect())
+        })
+        .unwrap_or_default();
+    let grams = value("filament used [g]").and_then(|v| filament_grams(&json!({ "filament used [g]": v })));
+    FileNotes { objects, grams }
+}
+
+/// The printer's notes in the start of a binary G-code file.
+#[derive(Debug, PartialEq)]
+enum Head {
+    /// They aren't all here yet.
+    More,
+    Notes(String),
+    /// Not binary G-code, or it has none that can be read.
+    Missing,
+}
+
+/// Finds the notes for the printer, which binary G-code keeps near its start,
+/// ahead of the thumbnails and the G-code itself.
+fn printer_notes(head: &[u8]) -> Head {
+    const GCODE: u16 = 1;
+    const PRINTER: u16 = 3;
+    const THUMBNAIL: u16 = 5;
+    let u16_at = |i: usize| u16::from_le_bytes([head[i], head[i + 1]]);
+    let u32_at = |i: usize| u32::from_le_bytes([head[i], head[i + 1], head[i + 2], head[i + 3]]) as usize;
+    if head.len() < 10 {
+        return Head::More;
+    }
+    if &head[..4] != b"GCDE" {
+        return Head::Missing;
+    }
+    let checksum = if u16_at(8) == 1 { 4 } else { 0 };
+    let mut pos = 10;
+    loop {
+        if head.len() < pos + 12 {
+            return Head::More;
+        }
+        let (kind, compression, size) = (u16_at(pos), u16_at(pos + 2), u32_at(pos + 4));
+        // A compressed block gives its size in the file after its size once unpacked.
+        let (stored, header) = if compression == 0 { (size, 8) } else { (u32_at(pos + 8), 12) };
+        let start = pos + header + if kind == THUMBNAIL { 6 } else { 2 };
+        let end = start + stored;
+        if kind == GCODE || kind > THUMBNAIL {
+            return Head::Missing;
+        }
+        if kind == PRINTER {
+            let Some(body) = head.get(start..end) else { return Head::More };
+            let mut text = String::new();
+            let read = match compression {
+                0 => std::str::from_utf8(body).map(|t| text.push_str(t)).is_ok(),
+                1 => flate2::read::ZlibDecoder::new(body).read_to_string(&mut text).is_ok(),
+                _ => false,
+            };
+            return if read { Head::Notes(text) } else { Head::Missing };
+        }
+        pos = end + checksum;
+    }
+}
+
+/// Reads the notes in a print's file, taking only the start of it from the printer.
+async fn read_notes(link: &mut Link, path: &str) -> Result<Option<FileNotes>, Failure> {
+    let mut res = link.get(path).await?;
+    if !res.status().is_success() {
+        return Err(Failure::Network(format!("PrusaLink answered {} for {path}", res.status())));
+    }
+    let mut head = Vec::new();
+    loop {
+        match printer_notes(&head) {
+            Head::Notes(text) => return Ok(Some(file_notes(&text))),
+            Head::Missing => return Ok(None),
+            Head::More if head.len() > HEAD_LIMIT => return Ok(None),
+            Head::More => {}
+        }
+        let chunk = res.chunk().await.map_err(|e| Failure::Network(format!("Can't read {path} from the printer: {e}")))?;
+        match chunk {
+            Some(bytes) => head.extend_from_slice(&bytes),
+            None => return Ok(None),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct Info {
     name: Option<String>,
@@ -179,7 +306,7 @@ struct Info {
 }
 
 /// The print a printer is (or was last) running.
-#[derive(Clone)]
+#[derive(Default)]
 struct Run {
     id: u64,
     name: String,
@@ -187,6 +314,10 @@ struct Run {
     started: i64,
     /// Grams of filament, from the slicer's figures in the file.
     filament_g: Option<f64>,
+    /// One name per object on the plate, from the file's notes.
+    objects: Vec<String>,
+    /// Where the printer serves the file, and the tries left to read its notes.
+    unread: Option<(String, u8)>,
 }
 
 /// Bambu `gcode_state` for a PrusaLink printer state.
@@ -226,6 +357,9 @@ fn report(status: &Status, run: Option<&Run>) -> Value {
         if let Some(grams) = run.filament_g {
             r["filament_g"] = json!(grams);
         }
+        if !run.objects.is_empty() {
+            r["plate_objects"] = json!(run.objects);
+        }
     }
     if let Some(job) = job {
         r["mc_percent"] = json!(job.progress.unwrap_or(0.0).round() as i64);
@@ -251,8 +385,27 @@ async fn poll(link: &mut Link, run: &mut Option<Run>) -> Result<Value, Failure> 
             let info: Option<JobInfo> = link.get_json("/api/v1/job").await?;
             let file = info.and_then(|i| i.file);
             let filament_g = file.as_ref().and_then(|f| filament_grams(&f.meta));
+            let unread = file.as_ref().and_then(|f| f.refs.download.clone()).map(|path| (path, NOTES_TRIES));
             let name = file.map(|f| f.display_name.unwrap_or(f.name)).unwrap_or_default();
-            *run = Some(Run { id, name, started: now() - job.time_printing.unwrap_or(0), filament_g });
+            let started = now() - job.time_printing.unwrap_or(0);
+            *run = Some(Run { id, name, started, filament_g, objects: Vec::new(), unread });
+        }
+        // The file says what's on the plate, which its name and the printer don't.
+        if let Some(run) = run.as_mut() {
+            if let Some((path, tries)) = run.unread.take() {
+                match read_notes(link, &path).await {
+                    Ok(notes) => {
+                        let notes = notes.unwrap_or_default();
+                        println!("[prusa {}] {}: {} objects, {:?} g of filament", link.host, run.name, notes.objects.len(), notes.grams);
+                        run.filament_g = run.filament_g.or(notes.grams);
+                        run.objects = notes.objects;
+                    }
+                    Err(f) => {
+                        println!("[prusa {}] can't read the print's file: {}", link.host, f.message());
+                        run.unread = (tries > 1).then(|| (path, tries - 1));
+                    }
+                }
+            }
         }
     }
     Ok(report(&status, run.as_ref()))
@@ -365,7 +518,7 @@ mod tests {
             "job": {"id": 7, "progress": 42.4, "time_remaining": 3600, "time_printing": 120},
             "printer": {"state": "PRINTING", "temp_nozzle": 214.8, "target_nozzle": 215.0, "temp_bed": 60.1, "target_bed": 60.0}
         }));
-        let run = Run { id: 7, name: "Wall_A_0.4n_0.2mm_PLA_MK4S_1h2m.bgcode".into(), started: 1000, filament_g: None };
+        let run = Run { id: 7, name: "Wall_A_0.4n_0.2mm_PLA_MK4S_1h2m.bgcode".into(), started: 1000, ..Default::default() };
         let r = report(&s, Some(&run));
         assert_eq!(r["gcode_state"], "RUNNING");
         assert_eq!(r["mc_percent"], 42);
@@ -386,14 +539,91 @@ mod tests {
         let info: JobInfo = serde_json::from_value(json!({"file": {"name": "A.bgcode", "meta": {"filament used [g]": 3.1}}})).unwrap();
         let file = info.file.unwrap();
         assert_eq!(filament_grams(&file.meta), Some(3.1));
-        let run = Run { id: 7, name: file.name, started: 1000, filament_g: filament_grams(&file.meta) };
+        let run = Run { id: 7, name: file.name, started: 1000, filament_g: filament_grams(&file.meta), ..Default::default() };
         let s = status(json!({"job": {"id": 7}, "printer": {"state": "PRINTING"}}));
         assert_eq!(report(&s, Some(&run))["filament_g"], 3.1);
     }
 
+    /// A binary G-code block, with the checksum the file's header promises.
+    fn block(kind: u16, compression: u16, body: &[u8], unpacked: usize) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend(kind.to_le_bytes());
+        b.extend(compression.to_le_bytes());
+        b.extend((unpacked as u32).to_le_bytes());
+        if compression != 0 {
+            b.extend((body.len() as u32).to_le_bytes());
+        }
+        b.extend(if kind == 5 { &[0u8; 6][..] } else { &[0u8; 2][..] });
+        b.extend(body);
+        b.extend([0u8; 4]);
+        b
+    }
+
+    const NOTES: &str = "printer_model=COREONEL\nobjects_info={\"objects\":[{\"name\":\"roof_2.stl\",\"polygon\":[[1.5,2.0],[3.0,4.0]]},{\"name\":\"roof_5.stl (Instance 1)\",\"polygon\":[]},{\"name\":\"roof_5.stl (Instance 2)\",\"polygon\":[]}]}\nfilament used [mm]=263379.43\nfilament used [g]=766.54\n";
+
+    #[test]
+    fn plate_from_file_notes() {
+        let notes = file_notes(NOTES);
+        assert_eq!(notes.objects, ["roof_2.stl", "roof_5.stl", "roof_5.stl"]);
+        assert_eq!(notes.grams, Some(766.54));
+        assert_eq!(file_notes("printer_model=MK4S\nobjects_info={\"objects\":[{\"name\":\"a \"b\"\"}]}\n"), FileNotes::default());
+        assert_eq!(file_notes("filament used [g]=12.5, 2.5\n").grams, Some(15.0));
+
+        let run = Run { id: 7, name: "roof_2.bgcode".into(), started: 1000, objects: notes.objects, ..Default::default() };
+        let s = status(json!({"job": {"id": 7}, "printer": {"state": "PRINTING"}}));
+        assert_eq!(report(&s, Some(&run))["plate_objects"], json!(["roof_2.stl", "roof_5.stl", "roof_5.stl"]));
+        let bare = Run { id: 7, ..Default::default() };
+        assert!(report(&s, Some(&bare)).get("plate_objects").is_none());
+    }
+
+    #[test]
+    fn object_names() {
+        assert_eq!(object_name("Wall.stl"), "Wall.stl");
+        assert_eq!(object_name("Wall.stl (Instance 12)"), "Wall.stl");
+        assert_eq!(object_name("Wall.stl id:0 copy 3"), "Wall.stl");
+        assert_eq!(object_name("Wall (Instance two)"), "Wall (Instance two)");
+        assert_eq!(object_name("my copy 2"), "my copy 2");
+    }
+
+    #[test]
+    fn notes_in_binary_gcode() {
+        let mut file = b"GCDE".to_vec();
+        file.extend(1u32.to_le_bytes());
+        file.extend(1u16.to_le_bytes());
+        file.extend(block(0, 0, b"Producer=PrusaSlicer 2.9.6\n", 27));
+        let before = file.len();
+        file.extend(block(3, 0, NOTES.as_bytes(), NOTES.len()));
+        let after = file.len();
+        file.extend(block(5, 0, &[7u8; 500], 500));
+        file.extend(block(1, 3, &[9u8; 300], 900));
+
+        assert_eq!(printer_notes(&file), Head::Notes(NOTES.into()));
+        // Every shorter read asks for more until the notes are whole.
+        for n in [0, 9, 10, before, before + 11, before + 12, after - 5] {
+            assert_eq!(printer_notes(&file[..n]), Head::More, "{n} bytes");
+        }
+        assert_eq!(printer_notes(&file[..after - 4]), Head::Notes(NOTES.into()));
+
+        let mut packed = Vec::new();
+        let mut z = flate2::read::ZlibEncoder::new(NOTES.as_bytes(), flate2::Compression::default());
+        z.read_to_end(&mut packed).unwrap();
+        let mut zipped = file[..before].to_vec();
+        zipped.extend(block(3, 1, &packed, NOTES.len()));
+        assert_eq!(printer_notes(&zipped), Head::Notes(NOTES.into()));
+
+        // No notes ahead of the G-code, a kind of packing that isn't read, or another kind of file.
+        let mut none = file[..before].to_vec();
+        none.extend(block(1, 3, &[9u8; 300], 900));
+        assert_eq!(printer_notes(&none), Head::Missing);
+        let mut shrunk = file[..before].to_vec();
+        shrunk.extend(block(3, 2, &[9u8; 300], 900));
+        assert_eq!(printer_notes(&shrunk), Head::Missing);
+        assert_eq!(printer_notes(b"; generated by PrusaSlicer 2.9.6\nG28\n"), Head::Missing);
+    }
+
     #[test]
     fn finished_print_keeps_its_name() {
-        let run = Run { id: 7, name: "Wall_A.bgcode".into(), started: 1000, filament_g: None };
+        let run = Run { id: 7, name: "Wall_A.bgcode".into(), started: 1000, ..Default::default() };
         let r = report(&status(json!({"printer": {"state": "FINISHED"}})), Some(&run));
         assert_eq!(r["gcode_state"], "FINISH");
         assert_eq!(r["subtask_name"], "Wall_A.bgcode");

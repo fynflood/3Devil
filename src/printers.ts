@@ -82,10 +82,12 @@ export function linkedJob(projects: Project[], printerId: string, report: Printe
 /**
  * The lines of a job a print is making. A job can hold more than one print's
  * worth of parts, so a print named after parts is just those parts; only a
- * print named after the job itself is taken to be all of it.
+ * print named after the job itself, or a job counted from the print's plate,
+ * is taken to be all of it.
  */
 export function itemsInPrint(project: Project, job: Job, subtask: string): JobItem[] {
-  if (job.printer?.fromPrinter && job.printer.subtask === subtask) return job.items;
+  const link = job.printer;
+  if ((link?.fromPrinter || link?.counted) && link.subtask === subtask) return job.items;
   const matches = printNameTest(subtask);
   const named = job.items.filter((it) => matches(project.parts.find((p) => p.id === it.partId)?.name ?? ""));
   return named.length ? named : job.items;
@@ -93,12 +95,19 @@ export function itemsInPrint(project: Project, job: Job, subtask: string): JobIt
 
 /**
  * The copies of each part on a plate, from its object names, or null if none
- * of them is a part. Parts already in the job come first, then visible ones.
+ * of them is a part. Where parts share a name, one already in the job comes
+ * first, then one waiting in the queue, one from a folder the job's parts are
+ * in, and a visible one.
  */
 export function countPlate(project: Project, job: Job, objects: string[]): JobItem[] | null {
   const hidden = new Set(project.hiddenGroups);
   const inJob = new Set(job.items.map((it) => it.partId));
-  const rank = (p: Part) => (inJob.has(p.id) ? 0 : hidden.has(p.group) ? 2 : 1);
+  const waiting = new Set(
+    project.jobs.filter((j) => j.status === "queued" && !j.printer).flatMap((j) => j.items.map((it) => it.partId)),
+  );
+  const groups = new Set(project.parts.filter((p) => inJob.has(p.id)).map((p) => p.group));
+  const rank = (p: Part) =>
+    inJob.has(p.id) ? 0 : waiting.has(p.id) ? 1 : groups.has(p.group) ? 2 : hidden.has(p.group) ? 4 : 3;
   const counts = new Map<string, number>();
   for (const name of objects) {
     const key = norm(name);
@@ -271,7 +280,7 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
     for (const [id, st] of Object.entries(statuses)) {
       const r = st.print;
       if (!r.gcode_state) continue;
-      // The weight can arrive after the print is picked up: Bambu's is read from its file.
+      // The weight and the plate can arrive after the print is picked up, once its file is read.
       const linked = r.filament_g || r.plate_objects ? linkedJob(projects, id, r) : null;
       if (linked?.job.status === "queued") {
         const { project, job } = linked;
@@ -280,14 +289,10 @@ export function usePrinters(store: Store, notify: (msg: string, kind?: "info" | 
             j.printer!.filamentG = r.filament_g;
           });
         }
-        // A print started elsewhere was taken as one copy; its file says how many.
-        const counted = job.printer!.fromPrinter && r.plate_objects ? countPlate(project, job, r.plate_objects) : null;
-        const key = (items: JobItem[]) => JSON.stringify(items.map((it) => [it.partId, it.qty]).sort());
-        if (counted && key(counted) !== key(job.items)) {
-          store.actions.updateJob(project.id, job.id, (j) => {
-            j.items = counted;
-          });
-        }
+        // The print's name may only give one of the parts on it; its file has them all.
+        // Counted once, so parts taken out of the job by hand stay out.
+        const plate = !job.printer!.counted && r.plate_objects ? countPlate(project, job, r.plate_objects) : null;
+        if (plate) store.actions.countJob(project.id, job.id, plate);
       }
       const before = prev.current[id];
       if (before && before.state === r.gcode_state && before.run === runKey(r)) continue;
@@ -312,8 +317,15 @@ function onChange(
   const { actions } = store;
   const state = r.gcode_state ?? "";
 
+  /** Sets a job to what the print's file says is on the plate, once it's been read. */
+  const count = (project: Project, job: Job) => {
+    const plate = r.plate_objects ? countPlate(project, job, r.plate_objects) : null;
+    if (plate) actions.countJob(project.id, job.id, plate);
+    return !!plate;
+  };
   /** Leaves a job with just what this print makes, so the rest stays queued. */
   const narrow = (project: Project, job: Job) => {
+    if (job.printer?.counted || count(project, job)) return;
     const items = itemsInPrint(project, job, r.subtask_name ?? "");
     if (items.length < job.items.length) actions.splitJob(project.id, job.id, items.map((it) => it.partId));
   };
@@ -348,6 +360,7 @@ function onChange(
       if (!m.job) j.printer.fromPrinter = true;
     });
     if (m.job) narrow(m.project, m.job);
+    else count(m.project, job);
     notify(
       rerun
         ? `${printer.name} is printing ${job.name} (${m.project.name}) again — tracking the new run.`
