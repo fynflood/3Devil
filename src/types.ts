@@ -308,8 +308,6 @@ export interface Settings {
   theme?: Theme;
   /** Check GitHub for new versions and download them in the background (default on). */
   autoUpdate?: boolean;
-  /** Minutes idle before the screensaver; 0 turns it off. */
-  screensaverMinutes?: number;
   printers?: PrinterConfig[];
   driveThru?: DriveThruSettings;
 }
