@@ -80,14 +80,13 @@ export function linkedJob(projects: Project[], printerId: string, report: Printe
 }
 
 /**
- * The lines of a job a print is making. A job can hold more than one print's
- * worth of parts, so a print named after parts is just those parts; only a
- * print named after the job itself, or a job counted from the print's plate,
- * is taken to be all of it.
+ * The lines of a job a print is making. A job already tied to the print is all
+ * of it. One still waiting can hold more than one print's worth of parts, so a
+ * print named after parts is just those parts; only a print named after the
+ * job itself is taken to be all of it.
  */
 export function itemsInPrint(project: Project, job: Job, subtask: string): JobItem[] {
-  const link = job.printer;
-  if ((link?.fromPrinter || link?.counted) && link.subtask === subtask) return job.items;
+  if (job.printer?.subtask === subtask) return job.items;
   const matches = printNameTest(subtask);
   const named = job.items.filter((it) => matches(project.parts.find((p) => p.id === it.partId)?.name ?? ""));
   return named.length ? named : job.items;
@@ -188,8 +187,10 @@ export function matchPrint(projects: Project[], report: PrinterReport): PrintMat
 export function currentPart(projects: Project[], printerId: string, report: PrinterReport) {
   const linked = linkedJob(projects, printerId, report);
   if (linked) {
-    const partId = itemsInPrint(linked.project, linked.job, report.subtask_name ?? "")[0]?.partId;
-    const part = linked.project.parts.find((p) => p.id === partId);
+    const matches = printNameTest(report.subtask_name ?? "");
+    const parts = linked.job.items.flatMap((it) => linked.project.parts.find((p) => p.id === it.partId) ?? []);
+    // The part the file is named after, else the first one in the job.
+    const part = parts.find((p) => matches(p.name)) ?? parts[0];
     return { linked, match: part ? { project: linked.project, part } : null };
   }
   return { linked, match: ACTIVE_STATES.has(report.gcode_state ?? "") ? matchPrint(projects, report) : null };
@@ -323,16 +324,19 @@ function onChange(
     if (plate) actions.countJob(project.id, job.id, plate);
     return !!plate;
   };
-  /** Leaves a job with just what this print makes, so the rest stays queued. */
-  const narrow = (project: Project, job: Job) => {
-    if (job.printer?.counted || count(project, job)) return;
-    const items = itemsInPrint(project, job, r.subtask_name ?? "");
-    if (items.length < job.items.length) actions.splitJob(project.id, job.id, items.map((it) => it.partId));
+  /**
+   * Leaves a job with just what this print makes, so the rest stays queued.
+   * Only done as the print is picked up: a job already on a printer is never
+   * split again, whatever is in it by then.
+   */
+  const narrow = (project: Project, job: Job, named: JobItem[]) => {
+    if (count(project, job)) return;
+    if (named.length < job.items.length) actions.splitJob(project.id, job.id, named.map((it) => it.partId));
   };
 
   if (ACTIVE_STATES.has(state)) {
-    const linked = linkedJob(projects, printer.id, r);
-    if (linked) return narrow(linked.project, linked.job);
+    // Already being tracked; its parts are left as they are.
+    if (linkedJob(projects, printer.id, r)) return;
     const m = matchPrint(projects, r);
     if (!m) return;
     const started = Number(r.gcode_start_time) > 0 ? Number(r.gcode_start_time) * 1000 : Date.now();
@@ -349,6 +353,8 @@ function onChange(
         ? actions.createJob(m.project.id, rerun.items.map((it) => it.partId), slicer, rerun.name)
         : actions.createJob(m.project.id, [m.part.id], slicer, r.subtask_name?.split(" + ")[0]));
     if (!job) return;
+    // Worked out before the job is tied to the print, after which it is all of it.
+    const named = itemsInPrint(m.project, job, r.subtask_name ?? "");
     if (!m.job) {
       // Otherwise assume one copy until its plate is read.
       actions.updateJob(m.project.id, job.id, (j) => {
@@ -359,7 +365,7 @@ function onChange(
       j.printer = { printerId: printer.id, printerName: printer.name, subtask: r.subtask_name ?? "", startedAt: started, runId: r.job_id };
       if (!m.job) j.printer.fromPrinter = true;
     });
-    if (m.job) narrow(m.project, m.job);
+    if (m.job) narrow(m.project, m.job, named);
     else count(m.project, job);
     notify(
       rerun
@@ -378,7 +384,6 @@ function onChange(
     // On startup, only pick up a finished print if it's the same one we were tracking.
     const sameRun = link.runId ? link.runId === r.job_id : Number(r.gcode_start_time) * 1000 === link.startedAt;
     if (!sawEnd && !sameRun) return;
-    narrow(project, job);
     if (link.awaitingReview) return;
     actions.updateJob(project.id, job.id, (j) => {
       j.printer!.endState = state;
