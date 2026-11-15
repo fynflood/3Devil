@@ -2,6 +2,12 @@
 
 Each version's section becomes its release notes and what 3Devil shows after updating. Write for the people using the app, and add a section before tagging a release.
 
+## 0.1.11
+
+- **Progress while it prints:** a plate that's on a connected printer shows how far along it is and the time left, in place of the *Printed* and *Failed* buttons. They come back when the printer stops.
+- **Prusa cameras:** a Prusa printer can show its camera on the Printers page. Add the camera's address under *Camera* when editing the printer: the Buddy3D camera's own IP address, with its *Local Stream Mode* set to RTSP in the Prusa app, or any camera's full `rtsp://` address. It needs `ffmpeg`.
+- **Rearrange your printers:** drag a printer by its grip on the Printers page, or move it with the arrow keys. The sidebar follows the same order.
+
 ## 0.1.10
 
 - **Windows on ARM:** a native installer for laptops such as those with Snapdragon X chips. Thanks to jerosenwald-prog for adding it.
