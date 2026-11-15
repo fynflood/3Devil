@@ -2,6 +2,10 @@
 
 Each version's section becomes its release notes and what 3Devil shows after updating. Write for the people using the app, and add a section before tagging a release.
 
+## 0.1.12
+
+- **Whole plates on a Prusa:** a print with several parts on the bed now tracks all of them. PrusaSlicer names the file after the first part only, so 3Devil picked up just that one; it now reads what's on the plate from the print's file on the printer. This needs binary G-code (`.bgcode`), which PrusaSlicer makes by default for these printers.
+
 ## 0.1.11
 
 - **Progress while it prints:** a plate that's on a connected printer shows how far along it is and the time left, in place of the *Printed* and *Failed* buttons. They come back when the printer stops.
