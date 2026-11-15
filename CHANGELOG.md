@@ -2,6 +2,13 @@
 
 Each version's section becomes its release notes and what 3Devil shows after updating. Write for the people using the app, and add a section before tagging a release.
 
+## 0.1.14
+
+- **Printers side by side:** the Printers screen fills the window with a tile for each printer: its camera, what's printing and the readings that matter, with the rest under *More readings*. Printers you've switched off shrink to a line at the bottom, and *Turn off* and *Remove* have moved into *Edit*.
+- **Up next:** a plate that's sliced and waiting shows as *Up next* on its printer, and its parts say *Up next* instead of *queued*. When 3Devil can't tell which printer a plate is for, pick one with *Next on*, on the Printers screen or on the job.
+- **Where you'll be after this print:** while parts are printing, their folder's progress bar, and the project's, shows in a muted green how far along you'll be once they're done.
+- **Folders open in your file manager:** on Linux, the folder button could open a web browser instead.
+
 ## 0.1.13
 
 - **Jobs on a printer stay whole:** a job that's printing keeps every part in it. Before, restarting 3Devil, or pausing and resuming a print, could split off any parts the print's file wasn't named after into a new job. A job is now only trimmed to what's printing at the moment the print is first picked up.
