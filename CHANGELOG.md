@@ -2,6 +2,10 @@
 
 Each version's section becomes its release notes and what 3Devil shows after updating. Write for the people using the app, and add a section before tagging a release.
 
+## 0.1.13
+
+- **Jobs on a printer stay whole:** a job that's printing keeps every part in it. Before, restarting 3Devil, or pausing and resuming a print, could split off any parts the print's file wasn't named after into a new job. A job is now only trimmed to what's printing at the moment the print is first picked up.
+
 ## 0.1.12
 
 - **Whole plates on a Prusa:** a print with several parts on the bed now tracks all of them. PrusaSlicer names the file after the first part only, so 3Devil picked up just that one; it now reads what's on the plate from the print's file on the printer. This needs binary G-code (`.bgcode`), which PrusaSlicer makes by default for these printers.
