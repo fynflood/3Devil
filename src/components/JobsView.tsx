@@ -1,5 +1,5 @@
 import { formatDuration, formatGrams } from "../api";
-import { inSlicer, type PartProgress } from "../printers";
+import { inSlicer, jobSlicers, type PartProgress } from "../printers";
 import type { Store } from "../store";
 import { SLICER_NAMES, type Job, type JobItem, type Project, type SlicerId } from "../types";
 import { NextOn } from "./NextOn";
@@ -10,7 +10,8 @@ interface Props {
   /** What connected printers are making right now, by job id. */
   running: Map<string, JobItem[]>;
   partProgress: Map<string, PartProgress>;
-  onSend: (ids: string[], slicer: SlicerId, recordJob: boolean) => void;
+  /** Opens parts in a slicer; true once they're on their way. */
+  onSend: (ids: string[], slicer: SlicerId, recordJob: boolean) => Promise<boolean>;
   onFocusPart: (id: string) => void;
   onReview: (jobId: string) => void;
 }
@@ -30,6 +31,12 @@ export function JobsView({ store, project, running, partProgress, onSend, onFocu
       </div>
     );
   }
+
+  // A job dragged into a slicer learns which one from being opened in it here.
+  const reopen = async (job: Job, slicer: SlicerId) => {
+    const sent = await onSend(job.items.map((i) => i.partId), slicer, false);
+    if (sent && !job.slicer) actions.updateJob(project.id, job.id, (j) => { j.slicer = slicer; });
+  };
 
   const row = (job: Job) => {
     const copies = job.items.reduce((n, it) => n + it.qty, 0);
@@ -70,9 +77,11 @@ export function JobsView({ store, project, running, partProgress, onSend, onFocu
                   <button title="Count every copy in this job as failed" onClick={() => actions.finishJob(project.id, job.id, "failed")}>Failed</button>
                 </>
               )}
-              {job.slicer && (
-                <button title="Open these parts in the slicer again without adding a new job" onClick={() => onSend(job.items.map((i) => i.partId), job.slicer!, false)}>Reopen in slicer</button>
-              )}
+              {jobSlicers(job, store.state!.settings).map((id) => (
+                <button key={id} title={`Open these parts in ${SLICER_NAMES[id]} again without adding a new job`} onClick={() => reopen(job, id)}>
+                  {job.slicer ? "Reopen in slicer" : `Open in ${SLICER_NAMES[id]}`}
+                </button>
+              ))}
             </>
           ) : (
             <>

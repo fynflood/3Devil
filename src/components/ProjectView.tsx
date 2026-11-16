@@ -260,8 +260,10 @@ export function ProjectView({ store, project, driveThru, running, partProgress, 
       const job = await sendToSlicer(store, project, ids, slicer, recordJob);
       notify(job ? `Opened in ${SLICER_NAMES[slicer]} and queued as “${job.name}”.` : `Opened in ${SLICER_NAMES[slicer]}.`);
       if (recordJob) setSelected(new Set());
+      return true;
     } catch (e) {
       notify(String(e), "error");
+      return false;
     }
   }, [store, project, notify]);
 

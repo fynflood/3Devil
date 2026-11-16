@@ -152,6 +152,20 @@ export function nextPrinter(job: Job, printers: PrinterConfig[]): PrinterConfig 
   return fits.length === 1 ? fits[0] : undefined;
 }
 
+/**
+ * The slicers a job's parts can be opened in again: the one they were sent to.
+ * Parts dragged in don't say where they went, so those get the slicers that
+ * make files for the printer the job is on or waiting for, else all of them.
+ */
+export function jobSlicers(job: Job, settings: Settings): SlicerId[] {
+  if (job.slicer) return [job.slicer];
+  const on = enabledSlicers(settings);
+  const printers = settings.printers ?? [];
+  const printer = job.printer ? printers.find((p) => p.id === job.printer!.printerId) : nextPrinter(job, printers);
+  const fits = printer ? on.filter((id) => SLICER_PRINTERS[id].includes(printer.kind ?? "bambu")) : [];
+  return fits.length ? fits : on;
+}
+
 export interface UpNext {
   project: Project;
   job: Job;
