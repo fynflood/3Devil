@@ -2,6 +2,10 @@
 
 Each version's section becomes its release notes and what 3Devil shows after updating. Write for the people using the app, and add a section before tagging a release.
 
+## 0.1.15
+
+- **Open a dragged plate in its slicer again:** a print job made by dragging parts into a slicer now has an *Open in* button, like the *Reopen in slicer* on jobs made with *Send to*. It offers the slicers that fit the printer the job is on or waiting for, and remembers the one you open it in.
+
 ## 0.1.14
 
 - **Printers side by side:** the Printers screen fills the window with a tile for each printer: its camera, what's printing and the readings that matter, with the rest under *More readings*. Printers you've switched off shrink to a line at the bottom, and *Turn off* and *Remove* have moved into *Edit*.
