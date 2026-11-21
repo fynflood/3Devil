@@ -2,6 +2,10 @@
 
 Each version's section becomes its release notes and what 3Devil shows after updating. Write for the people using the app, and add a section before tagging a release.
 
+## 0.1.16
+
+- **Windows on Intel and AMD PCs:** the installer for ARM laptops no longer installs on other PCs, where it left a copy of 3Devil that Windows wouldn't start (*This app can't run on your PC*). It now says which installer to download instead. If you're seeing that message, install `3Devil_0.1.16_x64-setup.exe`; your projects and settings stay as they are.
+
 ## 0.1.15
 
 - **Open a dragged plate in its slicer again:** a print job made by dragging parts into a slicer now has an *Open in* button, like the *Reopen in slicer* on jobs made with *Send to*. It offers the slicers that fit the printer the job is on or waiting for, and remembers the one you open it in.
